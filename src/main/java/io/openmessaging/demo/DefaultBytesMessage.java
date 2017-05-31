@@ -1,12 +1,16 @@
 package io.openmessaging.demo;
 
+import java.io.Serializable;
+
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
 
-public class DefaultBytesMessage implements BytesMessage {
+public class DefaultBytesMessage implements BytesMessage, Serializable {
 
-    private KeyValue headers = new DefaultKeyValue();
+	private static final long serialVersionUID = 1955733544808061966L;
+
+	private KeyValue headers = new DefaultKeyValue();
     private KeyValue properties;
     private byte[] body;
 
