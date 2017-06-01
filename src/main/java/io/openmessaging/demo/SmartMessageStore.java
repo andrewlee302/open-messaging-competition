@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -107,23 +106,12 @@ public class SmartMessageStore {
 		return INSTANCE;
 	}
 
-	// TODO should narrow the share region
 	public void putMessage(String bucket, Message message) {
-		// WriteSegmentQueue wsq = writeSegmentQueueMap.get(bucket);
-		// if (wsq == null) {
-		// synchronized (writeSegmentQueueMap) {
-		// wsq = writeSegmentQueueMap.get(bucket);
-		// if (wsq == null) {
-		// wsq = new WriteSegmentQueue(bucket);
-		// writeSegmentQueueMap.put(bucket, wsq);
-		// }
-		// }
-		// }
 		WriteSegmentQueue wsq = writeSegmentQueueMap.get(bucket);
 		if (wsq == null) {
 			WriteSegmentQueue newWsq = new WriteSegmentQueue(bucket);
 			wsq = writeSegmentQueueMap.putIfAbsent(bucket, newWsq);
-			wsq = wsq == null ? newWsq : wsq;
+			wsq = (wsq == null ? newWsq : wsq);
 		}
 		wsq.cache(message);
 
@@ -138,17 +126,19 @@ public class SmartMessageStore {
 			if (bq == null) {
 				return null;
 			}
-			msg = bq.take();
-			if (msg instanceof NullMessage) {
-				int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
-				consumerNullMsgNumMap.put(queue, numNumMsg);
-				if (numNumMsg == bucketSize) {
-					return null;
+			while (true) {
+				msg = bq.take();
+				if (msg instanceof NullMessage) {
+					int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
+					consumerNullMsgNumMap.put(queue, numNumMsg);
+					if (numNumMsg == bucketSize) {
+						return null;
+					} else {
+						continue;
+					}
 				} else {
-					return pullMessage(queue, bucketSize);
+					return msg;
 				}
-			} else {
-				return msg;
 			}
 		} catch (InterruptedException e) {
 			return null;
@@ -218,6 +208,7 @@ public class SmartMessageStore {
 				ArrayList<BlockingQueue<Message>> bq = bucketBindingMsgQueuesMap.get(bucket);
 				if (bq == null) {
 					// there dosen't exist this bucket
+					// ignore
 				} else {
 					bq.add(consumerBindingMsgQueueMap.get(queueName));
 				}

@@ -31,10 +31,15 @@ public class InputManager {
 
 	private String storePath;
 
-	private BlockingQueue<MappedByteBufferAndNumSegs> readBufferQueue;
 	private DiskFetchService fetchService;
 	private Thread fetchThread;
 
+	/**
+	 * bucket queues partition, every msgEncoderService hold a part of bucket
+	 * within a specific readBufferQueue.
+	 */
+	private BlockingQueue<MappedByteBufferStruct>[] readBufferQueues;
+	private HashMap<Byte, BlockingQueue<MappedByteBufferStruct>> bucketReadBufferQueueMap;
 	private MessageEncoderService[] msgEncoderServices;
 	private Thread[] msgEncoderThreads;
 
@@ -56,10 +61,26 @@ public class InputManager {
 		}
 
 		// start Fetch service and message encoder services
-		this.readBufferQueue = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
 		this.fetchService = new DiskFetchService();
 		this.fetchThread = new Thread(fetchService);
 
+		readBufferQueues = new BlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
+		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+			readBufferQueues[i] = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
+		}
+
+		// uniform distribution
+		bucketReadBufferQueueMap = new HashMap<>(Config.NUM_BUCKETS);
+		int tempCnt = 0;
+		for (String queue : allMetaInfo.queues) {
+			bucketReadBufferQueueMap.put((byte) queue.hashCode(),
+					readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
+		}
+
+		for (String topic : allMetaInfo.topics) {
+			bucketReadBufferQueueMap.put((byte) topic.hashCode(),
+					readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
+		}
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
 		msgEncoderThreads = new Thread[Config.NUM_ENCODER_MESSAGE_THREAD];
 
@@ -76,7 +97,7 @@ public class InputManager {
 	public void startPullService(HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap) {
 		logger.info("Start " + Config.NUM_ENCODER_MESSAGE_THREAD + " messge encoder services");
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
-			msgEncoderServices[i] = new MessageEncoderService(bucketBindingMsgQueuesMap);
+			msgEncoderServices[i] = new MessageEncoderService(readBufferQueues[i], bucketBindingMsgQueuesMap);
 			msgEncoderThreads[i] = new Thread(msgEncoderServices[i]);
 			msgEncoderThreads[i].start();
 		}
@@ -132,6 +153,7 @@ public class InputManager {
 		}
 		long end = System.currentTimeMillis();
 		logger.info(String.format("Read meta from %s cost %d ms, size %d bytes", filename, end - start, fileSize));
+		logger.info(allMetaInfo.toString());
 	}
 
 	public MetaInfo getAllMetaInfo() {
@@ -142,72 +164,78 @@ public class InputManager {
 
 		@Override
 		public void run() {
-			System.out.println("allMetaInfo.numDataFiles = " + allMetaInfo.numDataFiles);
 			for (int fileId = 0; fileId < allMetaInfo.numDataFiles; fileId++) {
 				long start = System.currentTimeMillis();
 				RandomAccessFile memoryMappedFile = null;
-				MappedByteBuffer buffer = null;
 				Path p = Paths.get(storePath, fileId + ".data");
 				String filename = p.toString();
 				long fileSize = 0;
 				try {
 					memoryMappedFile = new RandomAccessFile(filename, "r");
 					fileSize = memoryMappedFile.length();
-					buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, fileSize);
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				// load the segments into the physical memory
-				buffer.load();
-				try {
-					memoryMappedFile.close();
+					// load the segments into the physical memory
 					// TODO, when to put the buffer, avoiding the page swap.
 					int numSegs = (int) (fileSize / Segment.CAPACITY);
-					readBufferQueue.put(new MappedByteBufferAndNumSegs(buffer, (int) (fileSize / Segment.CAPACITY)));
-
+					for (int i = 0; i < numSegs; i++) {
+						MappedByteBuffer buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
+								i * Segment.CAPACITY, Segment.CAPACITY);
+						buffer.load();
+						bucketReadBufferQueueMap.get(allMetaInfo.getNextBucketPart())
+								.put(new MappedByteBufferStruct(buffer, 0, Segment.CAPACITY));
+					}
 					numFetchSegs.addAndGet(numSegs);
 					numFetchSuperSegs.incrementAndGet();
+					memoryMappedFile.close();
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				} catch (IOException e) {
+					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} finally {
 					memoryMappedFile = null;
 				}
+
 				long end = System.currentTimeMillis();
 				logger.info(String.format(
 						"(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms, size %d bytes",
 						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, fileSize));
 			}
+			Byte mustNull = allMetaInfo.getNextBucketPart();
+			if (mustNull != null) {
+				logger.info("Must be wrong");
+			}
 
 			logger.info("Read all the files, emit finish signal");
-			try {
-				readBufferQueue.put(new NullMappedByteBufferAndNumSegs());
-			} catch (InterruptedException e) {
-				e.printStackTrace();
+			for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+				try {
+					readBufferQueues[i].put(new NullMappedByteBufferStruct());
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
 			}
 		}
 	}
 
 	class MessageEncoderService implements Runnable {
 		HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap;
+		BlockingQueue<MappedByteBufferStruct> readBufferQueue;
 
-		public MessageEncoderService(HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap) {
+		public MessageEncoderService(BlockingQueue<MappedByteBufferStruct> readBufferQueue,
+				HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap) {
+			this.readBufferQueue = readBufferQueue;
 			this.bucketBindingMsgQueuesMap = bucketBindingMsgQueuesMap;
 		}
 
 		@Override
 		public void run() {
 			while (true) {
-				MappedByteBufferAndNumSegs bufferAndNumSegs = null;
+				MappedByteBufferStruct bufferStruct = null;
 				try {
-					bufferAndNumSegs = readBufferQueue.take();
-					if (bufferAndNumSegs instanceof NullMappedByteBufferAndNumSegs) {
-						// replay the signal
-						readBufferQueue.put(bufferAndNumSegs);
+					bufferStruct = readBufferQueue.take();
+					if (bufferStruct instanceof NullMappedByteBufferStruct) {
 						break;
 					} else {
-						processSuperSegment(bufferAndNumSegs);
+						processSegment(bufferStruct.buffer, bufferStruct.offsetInSuperSegment, bufferStruct.segLength);
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
@@ -217,49 +245,84 @@ public class InputManager {
 		}
 
 		/**
+		 * process a single segments
+		 * 
+		 * @param buffer
+		 * @param offsetInSuperSegment
+		 * @param segLength
+		 */
+		private void processSegment(MappedByteBuffer buffer, int offsetInSuperSegment, int segLength) {
+			ReadableSegment readSegment = ReadableSegment.wrap(buffer, offsetInSuperSegment, segLength);
+			String b = readSegment.bucket;
+			int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
+			ArrayList<BlockingQueue<Message>> queueList = bucketBindingMsgQueuesMap.get(b);
+			Message msg;
+			try {
+				while (true) {
+					msg = readSegment.read();
+					for (BlockingQueue<Message> queue : queueList)
+						queue.put(msg);
+				}
+			} catch (SegmentEmptyException e) {
+				// send the nullMessage as a signal
+				if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
+					for (BlockingQueue<Message> queue : queueList)
+						try {
+							queue.put(new NullMessage(null));
+						} catch (InterruptedException e1) {
+							e1.printStackTrace();
+						}
+				}
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+
+		/**
 		 * process all segments in a super-segment
 		 * 
 		 * @param bufferAndNumSegs
 		 *            buffer
 		 */
+		@SuppressWarnings("unused")
 		private void processSuperSegment(MappedByteBufferAndNumSegs bufferAndNumSegs) {
 			long start = System.currentTimeMillis();
 			MappedByteBuffer buffer = bufferAndNumSegs.buffer;
 			int numSegs = bufferAndNumSegs.numSegs;
 
-			numConsumeSuperSegs.incrementAndGet();
-			numConsumeSegs.addAndGet(numSegs);
+			int localNumSuperSegs = numConsumeSuperSegs.incrementAndGet();
+			int localNumSegs = numConsumeSegs.addAndGet(numSegs);
 
 			int superSegmentSize = numSegs * Segment.CAPACITY;
 			for (int i = 0; i < numSegs; i++) {
-				ReadableSegment readSegment = ReadableSegment.wrap(buffer, i * Segment.CAPACITY, Segment.CAPACITY);
-				String b = readSegment.bucket;
-				int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
-				ArrayList<BlockingQueue<Message>> queueList = bucketBindingMsgQueuesMap.get(b);
-				Message msg;
-				try {
-					while (true) {
-						msg = readSegment.read();
-						for (BlockingQueue<Message> queue : queueList)
-							queue.put(msg);
-					}
-				} catch (SegmentEmptyException e) {
-					// send the nullMessage as a signal
-					if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
-						for (BlockingQueue<Message> queue : queueList)
-							try {
-								queue.put(new NullMessage(null));
-							} catch (InterruptedException e1) {
-								e1.printStackTrace();
-							}
-					}
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
+				processSegment(buffer, i * Segment.CAPACITY, Segment.CAPACITY);
 			}
 			long end = System.currentTimeMillis();
 			logger.info(String.format("(%dth superseg, %dth seg) decode super-segment cost %d ms, size %d bytes",
-					numConsumeSuperSegs.get(), numConsumeSegs.get(), end - start, superSegmentSize));
+					localNumSuperSegs, localNumSegs, end - start, superSegmentSize));
+		}
+	}
+
+	class MappedByteBufferStruct {
+		MappedByteBuffer buffer;
+		int offsetInSuperSegment;
+		int segLength;
+
+		MappedByteBufferStruct() {
+
+		}
+
+		MappedByteBufferStruct(MappedByteBuffer buffer, int offset, int length) {
+			this.buffer = buffer;
+			this.offsetInSuperSegment = offset;
+			this.segLength = length;
+		}
+	}
+
+	class NullMappedByteBufferStruct extends MappedByteBufferStruct {
+
+		public NullMappedByteBufferStruct() {
+			super();
 		}
 	}
 

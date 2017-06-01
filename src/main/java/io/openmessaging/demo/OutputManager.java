@@ -10,6 +10,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +19,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+
+import javax.swing.ButtonGroup;
 
 public class OutputManager {
 	private static Logger logger = Logger.getGlobal();
@@ -126,6 +129,7 @@ public class OutputManager {
 		}
 		long end = System.currentTimeMillis();
 		logger.info(String.format("Write meta to %s cost %d ms, size %d bytes", filename, end - start, meta.length));
+		logger.info(allMetaInfo.toString());
 	}
 
 	class PersistencyService implements Runnable {
@@ -138,11 +142,11 @@ public class OutputManager {
 
 		@Override
 		public void run() {
-			final int reqBatchCountThreshold = 20;
-			final long bathThreasholdTime = 500; // 500 ms
+			final int reqBatchCountThreshold = Config.REQ_BATCH_COUNT_THRESHOLD;
+			final long bathThreasholdTime = Config.REQ_WAIT_TIME_THRESHOLD; // ms
 			boolean isEnd = false;
 			while (!isEnd) {
-				List<WriteRequest> reqs = new ArrayList<>(reqBatchCountThreshold);
+				ArrayList<WriteRequest> reqs = new ArrayList<>(reqBatchCountThreshold);
 				for (int i = 0; i < reqBatchCountThreshold; i++) {
 					WriteRequest req = null;
 					try {
@@ -166,6 +170,7 @@ public class OutputManager {
 					continue;
 				persistSuperSegment(reqs);
 				logger.info(String.format("Catch %d write reqs", reqs.size()));
+				reqs.clear();
 			}
 		}
 
@@ -176,17 +181,18 @@ public class OutputManager {
 		 * @param reqs
 		 */
 		private void persistSuperSegment(List<WriteRequest> reqs) {
-			System.out.println("persistSuperSegment " + reqs.size());
 			numTotalSegs += reqs.size();
 			int fileSize = reqs.size() * Segment.CAPACITY;
 			long start = System.currentTimeMillis();
 			RandomAccessFile memoryMappedFile = null;
 			MappedByteBuffer buffer = null;
-			Path p = Paths.get(storePath, (fileId++) + ".data");
+			int superSegFileId = fileId++;
+			Path p = Paths.get(storePath, superSegFileId + ".data");
 			String filename = p.toString();
 			try {
 				memoryMappedFile = new RandomAccessFile(filename, "rw");
 				buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, fileSize);
+				memoryMappedFile.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
@@ -200,9 +206,8 @@ public class OutputManager {
 			int offset = 0, numSegs = 0;
 			for (int i = 0; i < reqs.size(); i++) {
 				WriteRequest req = reqs.get(i);
+				allMetaInfo.addBucketInfo(req.bucket);
 				byte[] data = req.seg.assemble();
-				for (int j = 0; j < data.length; j++) {
-				}
 				buffer.put(data);
 				try {
 					req.seg.clear();
@@ -217,7 +222,7 @@ public class OutputManager {
 						allMetaInfo.put(preBucket, meta);
 					}
 					numMetaRecord++;
-					meta.addMetaRecord(preIndex, fileId, offset, numSegs);
+					meta.addMetaRecord(preIndex, superSegFileId, offset, numSegs);
 					meta.addNumSegs(numSegs);
 
 					preBucket = req.bucket;
@@ -235,21 +240,14 @@ public class OutputManager {
 				allMetaInfo.put(preBucket, meta);
 			}
 			numMetaRecord++;
-			meta.addMetaRecord(preIndex, fileId, offset, numSegs);
+			meta.addMetaRecord(preIndex, superSegFileId, offset, numSegs);
 			meta.addNumSegs(numSegs);
 
-			try {
-				memoryMappedFile.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
 			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth) Write data (%d segs) to %s cost %d ms, size %d bytes", ++persistCnt,
-					reqs.size(), filename, end - start, fileSize));
+			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes", ++persistCnt,
+					reqs.size(), numTotalSegs, filename, end - start, fileSize));
 		}
-
 	}
-
 }
 
 // all meta info
@@ -270,6 +268,47 @@ class MetaInfo extends HashMap<String, BucketMeta> {
 	int numTotalMsgs;
 	int numDataFiles;
 	int numSuperSegs;
+
+	/**
+	 * the bucket partition values of sequential segments in the data store. we
+	 * can partition the segments of the same bucket to the same encoder service
+	 * for the message order. Use byte of its hashcode.
+	 */
+	ArrayList<Byte> bucketParts = new ArrayList<>(65536);
+	transient int cursorOfBucketParts = 0;
+
+	@Override
+	public String toString() {
+		StringBuffer sbq = new StringBuffer();
+		for (String q : queues) {
+			sbq.append(q);
+		}
+		StringBuffer sbt = new StringBuffer();
+		for (String t : topics) {
+			sbt.append(t);
+		}
+		return String.format(
+				"queueSize = %d, topicsSize = %d, numMetaRecord = %d, numTotalSegs = %d, numTotalMsgs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
+				queuesSize, topicsSize, numMetaRecord, numTotalSegs, numTotalMsgs, numDataFiles, numSuperSegs,
+				sbq.toString(), sbt.toString());
+
+	}
+
+	public void addBucketInfo(String bucket) {
+		bucketParts.add((byte) bucket.hashCode());
+	}
+
+	public Byte getNextBucketPart() {
+		if (cursorOfBucketParts < bucketParts.size()) {
+			return bucketParts.get(cursorOfBucketParts++);
+		} else {
+			return null;
+		}
+	}
+
+	public void setBucketParts(ArrayList<Byte> bucketParts) {
+		this.bucketParts = bucketParts;
+	}
 
 	public int getNumTotalSegs() {
 		return numTotalSegs;
@@ -315,10 +354,6 @@ class MetaInfo extends HashMap<String, BucketMeta> {
 		this.topicsSize = topicsSize;
 	}
 
-	public static long getSerialversionuid() {
-		return serialVersionUID;
-	}
-
 	public int getNumTotalMsgs() {
 		return numTotalMsgs;
 	}
@@ -350,7 +385,6 @@ class MetaInfo extends HashMap<String, BucketMeta> {
 	public void setNumMetaRecord(int numMetaRecord) {
 		this.numMetaRecord = numMetaRecord;
 	}
-
 }
 
 // One bucket, one segment meta
@@ -443,9 +477,10 @@ class WriteRequest implements Comparable<WriteRequest> {
 	@Override
 	public int compareTo(WriteRequest o) {
 		int flag = bucket.compareTo(o.bucket);
-		if (flag == 0)
-			return (index - o.index);
-		else
-			return flag;
+		return flag;
+		// if (flag == 0)
+		// return (index - o.index);
+		// else
+		// return flag;
 	}
 }

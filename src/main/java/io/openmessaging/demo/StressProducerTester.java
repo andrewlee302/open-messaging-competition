@@ -13,7 +13,7 @@ import io.openmessaging.PullConsumer;
 
 class StressTester {
 	protected static Logger logger = Logger.getGlobal();
-	protected static int num_msgs = 4000;
+	protected static int num_msgs = 400000;
 
 	protected static String store_path;
 	protected static int numProducers = 10;
@@ -39,7 +39,6 @@ public class StressProducerTester extends StressTester {
 
 	public static void main(String[] args) {
 		System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT %4$s %2$s %5$s%6$s%n");
-		logger.info("abc");
 		if (args.length < 1) {
 			System.err.println("Args missing");
 			System.err.println("<store_path> <num_msgs>");
@@ -86,10 +85,10 @@ public class StressProducerTester extends StressTester {
 		}
 
 		CountDownLatch sendDoneSignal = new CountDownLatch(numProducers);
-		input_threads = new Thread[numProducers];
+		output_threads = new Thread[numProducers];
 		for (int i = 0; i < numProducers; i++) {
 			final int ii = i;
-			input_threads[i] = new Thread(new Runnable() {
+			output_threads [i] = new Thread(new Runnable() {
 				@Override
 				public void run() {
 					final Producer p = producers[ii];
@@ -134,17 +133,17 @@ public class StressProducerTester extends StressTester {
 		System.out.println("Start produce");
 		long start = System.currentTimeMillis();
 		for (int i = 0; i < numProducers; i++) {
-			input_threads[i].start();
+			output_threads[i].start();
 		}
 
 		try {
 			if (!sendDoneSignal.await(5 * 60, TimeUnit.SECONDS)) {
 				for (int i = 0; i < numProducers; i++) {
-					input_threads[i].interrupt();
+					output_threads[i].interrupt();
 				}
 			}
 			for (int i = 0; i < numProducers; i++) {
-				input_threads[i].join();
+				output_threads[i].join();
 			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
@@ -152,91 +151,17 @@ public class StressProducerTester extends StressTester {
 		long end = System.currentTimeMillis();
 		long T1 = end - start;
 		System.out.println(String.format("Produce cost:%d ms, send:%d q, tps:%d", T1, totalNumSendMsgs.get(),
-				totalNumSendMsgs.get() * 1000 / T1));
+				totalNumSendMsgs.get() / T1 * 1000));
 
-		// StringBuffer sb = new StringBuffer(400);
-		// int total = 0;
-		// for (int i = 0; i < numBuckets; i++) {
-		// int bucketCap = numSendMsgs[i].get();
-		// sb.append(String.format("%4d", bucketCap) + " ");
-		// total += bucketCap;
-		// }
-		// System.out.println(sb.toString());
-		// System.out.println("total = " + total + " totalNumSendMsgs = " +
-		// totalNumSendMsgs.get());
-
-		// CountDownLatch pullDoneSignal = new CountDownLatch(numProducers);
-		// output_threads = new Thread[numConsumers];
-		// for (int i = 0; i < numProducers; i++) {
-		// final int ii = i;
-		// output_threads[i] = new Thread(new Runnable() {
-		//
-		// @Override
-		// public void run() {
-		// Random rand = new Random(System.currentTimeMillis());
-		// int numSubTopic = rand.nextInt(numTopics / 10 + 1);
-		// Set<String> subTopicSet = new HashSet<>();
-		// int cnt = 0;
-		// while (cnt < numSubTopic)
-		// if (subTopicSet.add(topics[rand.nextInt(numTopics)]))
-		// cnt++;
-		//
-		// final PullConsumer c = consumers[ii];
-		// final String bindQueue = queues[ii];
-		// ArrayList<String> subTopics = new ArrayList<>();
-		// subTopics.addAll(subTopicSet);
-		// c.attachQueue(bindQueue, subTopics);
-		//
-		// int[][] producerSeqs = new int[numProducers][numBuckets];
-		// while (true) {
-		// Message msg = c.poll();
-		// if (msg == null) {
-		// // 拉取为null则认为消息已经拉取完毕
-		// break;
-		// }
-		// DefaultBytesMessage byteMsg = (DefaultBytesMessage) msg;
-		//
-		// String topic = byteMsg.headers().getString(MessageHeader.TOPIC);
-		// String queue = byteMsg.headers().getString(MessageHeader.QUEUE);
-		// byte[] body = byteMsg.getBody();
-		// int producerId = (int) body[0];
-		// int buekcetId = (int) body[1];
-		// int seq = unpack(body);
-		//
-		// // 实际测试时，会一一比较各个字段
-		// if (topic != null) {
-		// Assert.assertTrue(subTopicSet.contains(topic));
-		// } else {
-		// Assert.assertEquals(bindQueue, queue);
-		// }
-		// Assert.assertEquals(producerSeqs[producerId][buekcetId]++, seq);
-		// }
-		// for (int[] pss : producerSeqs) {
-		// for (int ps : pss) {
-		// totalNumPullMsgs.addAndGet(ps);
-		// }
-		// }
-		// pullDoneSignal.countDown();
-		// }
-		// });
-		// }
-
-		// System.out.println("Start consume");
-		// long startConsumer = System.currentTimeMillis();
-		// for (int i = 0; i < numConsumers; i++) {
-		// output_threads[i].start();
-		// }
-		// try {
-		// pullDoneSignal.await();
-		// } catch (InterruptedException e) {
-		// e.printStackTrace();
-		// }
-		// long endConsumer = System.currentTimeMillis();
-		// long T2 = endConsumer - startConsumer;
-		// System.out.println(String.format("Pull cost:%d ms, pull:%d q, tps:%d
-		// ", T2 + T1, totalNumPullMsgs.get(),
-		// totalNumPullMsgs.get() * 1000 / (T1 + T2)));
-
+		StringBuffer sb = new StringBuffer(400);
+		int total = 0;
+		for (int i = 0; i < numBuckets; i++) {
+			int bucketCap = numSendMsgs[i].get();
+			sb.append(String.format("%4d", bucketCap) + " ");
+			total += bucketCap;
+		}
+		System.out.println(sb.toString());
+		System.out.println("total = " + total + " totalNumSendMsgs = " + totalNumSendMsgs.get());
 	}
 
 	public static byte[] pack(int producerId, int bucketId, int seq) {

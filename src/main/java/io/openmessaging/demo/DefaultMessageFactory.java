@@ -70,7 +70,6 @@ public class DefaultMessageFactory implements MessageFactory {
 
 	private void setupHeaders(Message msg) {
 		msg.putHeaders(MessageHeader.BORN_TIMESTAMP, System.currentTimeMillis());
-
 	}
 
 	public Set<String> getQueues() {

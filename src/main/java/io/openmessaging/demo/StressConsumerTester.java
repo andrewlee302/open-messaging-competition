@@ -65,83 +65,15 @@ public class StressConsumerTester extends StressTester {
 			numPullMsgs[i] = new AtomicInteger();
 		}
 
-		// CountDownLatch sendDoneSignal = new CountDownLatch(numProducers);
-		// input_threads = new Thread[numProducers];
-		// for (int i = 0; i < numProducers; i++) {
-		// final int ii = i;
-		// input_threads[i] = new Thread(new Runnable() {
-		// @Override
-		// public void run() {
-		// final Producer p = producers[ii];
-		// Random rand = new Random(System.currentTimeMillis());
-		//
-		// int[] seqs = new int[numBuckets];
-		// Message msg = null;
-		// while (!Thread.currentThread().isInterrupted()) {
-		// if (totalNumSendMsgs.getAndIncrement() >= num_msgs) {
-		// break;
-		// }
-		// int buekcetId = rand.nextInt(numBuckets);
-		// String bucket = null;
-		//
-		// // auto-incremental field of message
-		//
-		// if (buekcetId < numConsumers) {
-		// bucket = queues[buekcetId];
-		// msg = p.createBytesMessageToQueue(bucket, pack(ii, buekcetId,
-		// seqs[buekcetId]++));
-		// } else {
-		// bucket = topics[buekcetId - numConsumers];
-		// msg = p.createBytesMessageToTopic(bucket, pack(ii, buekcetId,
-		// seqs[buekcetId]++));
-		// }
-		//
-		// logger.info(Thread.currentThread().getName() + " send msg " +
-		// totalNumSendMsgs.get());
-		// p.send(msg);
-		// }
-		// for (int i = 0; i < numBuckets; i++) {
-		// numSendMsgs[i].addAndGet(seqs[i]);
-		// }
-		// p.flush();
-		// sendDoneSignal.countDown();
-		// }
-		// });
-		// }
-		//
-		// System.out.println("Start produce");
-		// long start = System.currentTimeMillis();
-		// for (int i = 0; i < numProducers; i++) {
-		// input_threads[i].start();
-		// }
-		//
-		// try {
-		// if (!sendDoneSignal.await(5 * 60, TimeUnit.SECONDS)) {
-		// for (int i = 0; i < numProducers; i++) {
-		// input_threads[i].interrupt();
-		// }
-		// }
-		// for (int i = 0; i < numProducers; i++) {
-		// input_threads[i].join();
-		// }
-		// } catch (InterruptedException e) {
-		// e.printStackTrace();
-		// }
-		// long end = System.currentTimeMillis();
-		// long T1 = end - start;
-		// System.out.println(String.format("Produce cost:%d ms, send:%d q,
-		// tps:%d", T1, totalNumSendMsgs.get(),
-		// totalNumSendMsgs.get() * 1000 / T1));
-
-		CountDownLatch pullDoneSignal = new CountDownLatch(numProducers);
-		output_threads = new Thread[numConsumers];
-		for (int i = 0; i < numProducers; i++) {
+		CountDownLatch pullDoneSignal = new CountDownLatch(numConsumers);
+		input_threads = new Thread[numConsumers];
+		for (int i = 0; i < numConsumers; i++) {
 			final int ii = i;
-			output_threads[i] = new Thread(new Runnable() {
+			final Random rand = new Random(ii);
+			input_threads[i] = new Thread(new Runnable() {
 
 				@Override
 				public void run() {
-					Random rand = new Random(System.currentTimeMillis());
 					int numSubTopic = rand.nextInt(numTopics / 10 + 1);
 					Set<String> subTopicSet = new HashSet<>();
 					int cnt = 0;
@@ -156,6 +88,11 @@ public class StressConsumerTester extends StressTester {
 					c.attachQueue(bindQueue, subTopics);
 
 					int[][] producerSeqs = new int[numProducers][numBuckets];
+					for (int i = 0; i < numProducers; i++) {
+						for (int j = 0; j < numBuckets; j++) {
+							producerSeqs[i][j] = 0;
+						}
+					}
 					while (true) {
 						Message msg = c.poll();
 						if (msg == null) {
@@ -171,7 +108,7 @@ public class StressConsumerTester extends StressTester {
 						String queue = byteMsg.headers().getString(MessageHeader.QUEUE);
 						byte[] body = byteMsg.getBody();
 						int producerId = (int) body[0];
-						int buekcetId = (int) body[1];
+						int bucketId = (int) body[1];
 						int seq = unpack(body);
 
 						// 实际测试时，会一一比较各个字段
@@ -182,21 +119,27 @@ public class StressConsumerTester extends StressTester {
 							bucket = queue;
 							Assert.assertEquals(bindQueue, queue);
 						}
+
 						// logger.info(Thread.currentThread().getName() + " poll
 						// msg bucket: " + bucket
 						// + " ,total msgs num " + localTotalNumPullMsgs);
-						Assert.assertEquals(producerSeqs[producerId][buekcetId]++, seq);
+						if (producerSeqs[producerId][bucketId] != seq) {
+							System.out.println(String.format("R[%d %d %d], %d", producerId, bucketId, seq,
+									producerSeqs[producerId][bucketId]));
+						}
+						Assert.assertEquals(producerSeqs[producerId][bucketId], seq);
+						producerSeqs[producerId][bucketId]++;
 					}
 					pullDoneSignal.countDown();
-//					StringBuffer sb = new StringBuffer(400);
-//					for (int b = 0; b < numBuckets; b++) {
-//						int bucketCap = 0;
-//						for (int i = 0; i < numProducers; i++) {
-//							bucketCap += producerSeqs[i][b];
-//						}
-//						sb.append(String.format("%4d", bucketCap) + " ");
-//					}
-//					System.out.println(sb.toString());
+					StringBuffer sb = new StringBuffer(400);
+					for (int b = 0; b < numBuckets; b++) {
+						int bucketCap = 0;
+						for (int i = 0; i < numProducers; i++) {
+							bucketCap += producerSeqs[i][b];
+						}
+						sb.append(String.format("%4d", bucketCap) + " ");
+					}
+					System.out.println(sb.toString());
 				}
 			});
 		}
@@ -205,7 +148,7 @@ public class StressConsumerTester extends StressTester {
 
 		long startConsumer = System.currentTimeMillis();
 		for (int i = 0; i < numConsumers; i++) {
-			output_threads[i].start();
+			input_threads[i].start();
 		}
 		try {
 			pullDoneSignal.await();

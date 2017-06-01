@@ -24,13 +24,14 @@ import io.openmessaging.Message;
 public abstract class Segment {
 	protected static Logger logger = Logger.getGlobal();
 
-	public final static int CAPACITY = 1 << 20; // 1M
+	public final static int CAPACITY = Config.SEGMENT_SIZE;
 	final int quantitySize = 4, offsetSize = 4;
 
 	final int averageSizeOfMsg = 100;
 	final int maxNumMsg = (CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME) / (averageSizeOfMsg + 4);
-	final int offsetRegionSize = maxNumMsg* 4;
+	final int offsetRegionSize = maxNumMsg * 4;
 	final int msgRegionSize = CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME - offsetRegionSize;
+	final int msgRegionOffset = Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize;
 
 	String bucket = null;
 	int numMsgs = 0; // actual quantity
@@ -43,7 +44,6 @@ public abstract class Segment {
 	Segment() {
 		offsets = new int[maxNumMsg];
 	}
-
 }
 
 class WritableSegment extends Segment {
@@ -56,8 +56,7 @@ class WritableSegment extends Segment {
 		super();
 		this.bucket = bucket;
 		buff = new byte[CAPACITY];
-		msgBuffer = ByteBuffer.wrap(buff, Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize,
-				msgRegionSize);
+		msgBuffer = ByteBuffer.wrap(buff, msgRegionOffset, msgRegionSize);
 		segOutput = new SegmentOutputStream(msgBuffer);
 		try {
 			msgOutput = new ObjectOutputStream(segOutput);
@@ -67,16 +66,16 @@ class WritableSegment extends Segment {
 	}
 
 	public void append(Message msg) throws SegmentFullException {
-		int pos = segOutput.msgBuffer.position();
+		int pos = msgBuffer.position();
 		if (numMsgs >= maxNumMsg) {
 			throw new SegmentFullException(
 					"Segment meta is not enough, content remains " + (Segment.CAPACITY - pos) + " bytes");
 		}
-		segOutput.msgBuffer.mark();
+		msgBuffer.mark();
 		try {
 			msgOutput.writeObject(msg);
 		} catch (BufferOverflowException e) {
-			segOutput.msgBuffer.reset();
+			msgBuffer.reset();
 			throw new SegmentFullException(
 					"Segment content is not enough, meta remains " + (maxNumMsg - numMsgs) + " units");
 		} catch (IOException e) {
@@ -107,6 +106,9 @@ class WritableSegment extends Segment {
 		for (int i = 0; i < offsets.length; i++) {
 			ib.put(offsets[i]);
 		}
+		// byte[] header = new byte[4];
+		// System.arraycopy(buff, msgRegionOffset, header, 0, 4);
+		// System.out.println(Arrays.toString(header));
 		return buff;
 	}
 
@@ -133,10 +135,16 @@ class WritableSegment extends Segment {
 	 * recovery to the initial status
 	 */
 	public void clear() {
-		msgBuffer.clear();
 		numMsgs = 0;
+		try {
+			msgOutput.close();
+			msgBuffer = ByteBuffer.wrap(buff, msgRegionOffset, msgRegionSize);
+			segOutput = new SegmentOutputStream(msgBuffer);
+			msgOutput = new ObjectOutputStream(segOutput);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
-
 }
 
 class ReadableSegment extends Segment {
@@ -162,8 +170,12 @@ class ReadableSegment extends Segment {
 		mappedInput = new MappedByteBufferInputStream(buffer);
 		disassemble();
 		try {
-			buffer.position(
-					offsetInSuperSegment + Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize);
+			buffer.position(offsetInSuperSegment + msgRegionOffset);
+
+			// byte[] header = new byte[4];
+			// buffer.get(header);
+			// System.out.println(Arrays.toString(header));
+			buffer.position(offsetInSuperSegment + msgRegionOffset);
 			msgInput = new ObjectInputStream(mappedInput);
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -176,6 +188,11 @@ class ReadableSegment extends Segment {
 
 	public Message read() throws SegmentEmptyException {
 		if (readCursor >= numMsgs) {
+			try {
+				msgInput.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			throw new SegmentEmptyException();
 		}
 		Message msg = null;

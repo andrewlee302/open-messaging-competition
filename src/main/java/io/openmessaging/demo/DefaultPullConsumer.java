@@ -19,8 +19,6 @@ public class DefaultPullConsumer implements PullConsumer {
 	// 在消费的时候，除了要读取绑定的Topic的数据，还要去取直接发送到该Queue的数据
 	private List<String> bucketList = new ArrayList<>();
 
-	private int lastIndex = 0;
-
 	public DefaultPullConsumer(KeyValue properties) {
 		this.properties = properties;
 		SmartMessageStore.STORE_PATH = this.properties.getString("STORE_PATH");

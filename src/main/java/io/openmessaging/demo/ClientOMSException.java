@@ -1,12 +1,11 @@
 package io.openmessaging.demo;
 
-import io.openmessaging.exception.OMSException;
-import io.openmessaging.exception.OMSResourceNotExistException;
 import io.openmessaging.exception.OMSRuntimeException;
 
 public class ClientOMSException extends OMSRuntimeException {
 
-    public String message;
+	private static final long serialVersionUID = -1552534791444600429L;
+	public String message;
     public ClientOMSException(String message) {
         this.message = message;
     }
