@@ -20,7 +20,7 @@ public class Config {
 	/**
 	 *  it directly relates to the messages' lifecycle.
 	 */
-	public static final int SEGMENT_SIZE = 1 << 18;
+	public static final int SEGMENT_SIZE = 1 << 14;
 
 	public static final int AVERAGE_MSG_SIZE = 157;
 
