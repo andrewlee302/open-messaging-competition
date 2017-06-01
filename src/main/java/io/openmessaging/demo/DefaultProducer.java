@@ -104,9 +104,9 @@ public class DefaultProducer implements Producer {
 		messageStore.flush();
 
 		logger.info(String.format(
-				"maxMsgSize = %d, minMsgSize = %d, numMsg = %d, averageMsgSize = %d, numMsgLess100 = %d,  numMsgMore1024 = %d",
+				"maxMsgSize = %d, minMsgSize = %d, numMsg = %d, averageMsgSize = %d, numMsgLess100 = %d,  numMsgMore200 = %d",
 				messageFactory.maxMsgSize, messageFactory.minMsgSize, messageFactory.numMsg,
 				messageFactory.numMsg == 0 ? 0 : messageFactory.totalMsgSize / messageFactory.numMsg,
-				messageFactory.numMsgLess100, messageFactory.numMsgMore1024));
+				messageFactory.numMsgLess100, messageFactory.numMsgMore200));
 	}
 }

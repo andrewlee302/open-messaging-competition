@@ -24,14 +24,15 @@ import io.openmessaging.Message;
 public abstract class Segment {
 	protected static Logger logger = Logger.getGlobal();
 
-	public final static int CAPACITY = Config.SEGMENT_SIZE;
-	final int quantitySize = 4, offsetSize = 4;
+	static final int CAPACITY = Config.SEGMENT_SIZE;
+	static final int quantitySize = 4, offsetSize = 4;
 
-	final int averageSizeOfMsg = 100;
-	final int maxNumMsg = (CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME) / (averageSizeOfMsg + 4);
-	final int offsetRegionSize = maxNumMsg * 4;
-	final int msgRegionSize = CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME - offsetRegionSize;
-	final int msgRegionOffset = Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize;
+	static final int AVERAGE_MSG_SIZE = Config.AVERAGE_MSG_SIZE;
+	static final int maxNumMsg = (CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME)
+			/ (AVERAGE_MSG_SIZE + 4);
+	static final int offsetRegionSize = maxNumMsg * 4;
+	static final int msgRegionSize = CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME - offsetRegionSize;
+	static final int msgRegionOffset = Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize;
 
 	String bucket = null;
 	int numMsgs = 0; // actual quantity
@@ -66,18 +67,16 @@ class WritableSegment extends Segment {
 	}
 
 	public void append(Message msg) throws SegmentFullException {
-		int pos = msgBuffer.position();
 		if (numMsgs >= maxNumMsg) {
-			throw new SegmentFullException(
-					"Segment meta is not enough, content remains " + (Segment.CAPACITY - pos) + " bytes");
+			throw new SegmentFullException(true);
 		}
+		int pos = msgBuffer.position();
 		msgBuffer.mark();
 		try {
 			msgOutput.writeObject(msg);
 		} catch (BufferOverflowException e) {
 			msgBuffer.reset();
-			throw new SegmentFullException(
-					"Segment content is not enough, meta remains " + (maxNumMsg - numMsgs) + " units");
+			throw new SegmentFullException(false);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}

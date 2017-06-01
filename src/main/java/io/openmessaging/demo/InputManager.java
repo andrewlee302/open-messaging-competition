@@ -162,6 +162,9 @@ public class InputManager {
 
 	class DiskFetchService implements Runnable {
 
+		long totalReadDiskCost = 0; // ms
+		long totalReadDiskSize = 0; // bytes
+
 		@Override
 		public void run() {
 			for (int fileId = 0; fileId < allMetaInfo.numDataFiles; fileId++) {
@@ -196,9 +199,14 @@ public class InputManager {
 				}
 
 				long end = System.currentTimeMillis();
+
+				totalReadDiskCost += (end - start);
+				totalReadDiskSize += fileSize;
+
 				logger.info(String.format(
-						"(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms, size %d bytes",
-						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, fileSize));
+						"(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms, size %d bytes, readRate: %.3f m/s",
+						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, fileSize,
+						((double) totalReadDiskSize) / (1 << 20) / totalReadDiskCost * 1000));
 			}
 			Byte mustNull = allMetaInfo.getNextBucketPart();
 			if (mustNull != null) {

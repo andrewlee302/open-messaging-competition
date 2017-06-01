@@ -18,7 +18,7 @@ public class DefaultMessageFactory implements MessageFactory {
 	long totalMsgSize;
 	long numMsg;
 	long numMsgLess100;
-	long numMsgMore1024;
+	long numMsgMore200;
 
 	public DefaultMessageFactory() {
 		queues = new HashSet<>();
@@ -34,8 +34,8 @@ public class DefaultMessageFactory implements MessageFactory {
 			minMsgSize = len;
 		if (len < 100) 
 			numMsgLess100++;
-		if (len > numMsgMore1024)
-			numMsgMore1024++;
+		if (len > 200)
+			numMsgMore200++;
 		numMsg++;
 		totalMsgSize += len;
 			 
@@ -56,8 +56,8 @@ public class DefaultMessageFactory implements MessageFactory {
 			minMsgSize = len;
 		if (len < 100) 
 			numMsgLess100++;
-		if (len > numMsgMore1024)
-			numMsgMore1024++;
+		if (len > 200)
+			numMsgMore200++;
 		numMsg++;
 		totalMsgSize += len;
 

@@ -1,6 +1,7 @@
 package io.openmessaging.demo;
 
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Logger;
@@ -15,6 +16,8 @@ public class WriteSegmentQueue extends LinkedBlockingQueue<WritableSegment> {
 
 	private String bucket;
 	private OutputManager outputManager = OutputManager.getInstance();
+	static AtomicInteger occurMetaNotEnough = new AtomicInteger();
+	static AtomicInteger occurContentNotEnough = new AtomicInteger();
 
 	private Lock bucketlock;
 
@@ -58,21 +61,29 @@ public class WriteSegmentQueue extends LinkedBlockingQueue<WritableSegment> {
 	 * @throws InterruptedException
 	 */
 	public void cache(Message msg) {
-		// TODO optimization, keep the order in the thread, reduce the contention
+		// TODO optimization, keep the order in the thread, reduce the
+		// contention
 		bucketlock.lock();
 		try {
 			currSegment.append(msg);
-//			DefaultBytesMessage dbm = ((DefaultBytesMessage) msg);
-//			dbm.extract();
-//			System.out.printf("W[%d %d %d]\n", dbm.producerId, dbm.buekcetId, dbm.seq);
+			// DefaultBytesMessage dbm = ((DefaultBytesMessage) msg);
+			// dbm.extract();
+			// System.out.printf("W[%d %d %d]\n", dbm.producerId, dbm.buekcetId,
+			// dbm.seq);
 			msgIndex++;
 		} catch (SegmentFullException e) {
+			if (e.metaNotEnought)
+				occurMetaNotEnough.incrementAndGet();
+			else
+				occurContentNotEnough.incrementAndGet();
+
 			// logger.warning(e.toString());
 			// send segment to i/o manager
 
-//			DefaultBytesMessage dbm = ((DefaultBytesMessage) msg);
-//			dbm.extract();
-//			System.out.printf("S[%d %d %d]\n", dbm.producerId, dbm.buekcetId, dbm.seq);
+			// DefaultBytesMessage dbm = ((DefaultBytesMessage) msg);
+			// dbm.extract();
+			// System.out.printf("S[%d %d %d]\n", dbm.producerId,
+			// dbm.buekcetId, dbm.seq);
 
 			outputManager.writeSegment(this, bucket, currSegment, msgIndex);
 			try {

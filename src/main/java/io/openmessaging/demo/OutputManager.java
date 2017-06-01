@@ -69,6 +69,15 @@ public class OutputManager {
 			e.printStackTrace();
 		}
 		updateAndPersistMetaInfo(queues, topics);
+
+		printDebugInfo();
+	}
+
+	private void printDebugInfo() {
+		logger.info(allMetaInfo.toString());
+		logger.info(String.format("occurContentNotEnough = %d, occurMetaNotEnough = %d",
+				WriteSegmentQueue.occurContentNotEnough.get(), WriteSegmentQueue.occurMetaNotEnough.get()));
+
 	}
 
 	public void writeSegment(WriteSegmentQueue callbackQueue, String bucket, WritableSegment seg, int index) {
@@ -79,6 +88,9 @@ public class OutputManager {
 			e.printStackTrace();
 		}
 	}
+
+	long totalWriteDiskCost = 0; // ms
+	long totalWriteDiskSize = 0; // bytes
 
 	// TODO
 	// optimization: directly copy to mapped memory
@@ -128,8 +140,10 @@ public class OutputManager {
 			e.printStackTrace();
 		}
 		long end = System.currentTimeMillis();
-		logger.info(String.format("Write meta to %s cost %d ms, size %d bytes", filename, end - start, meta.length));
-		logger.info(allMetaInfo.toString());
+		totalWriteDiskCost += (end - start);
+		totalWriteDiskSize += meta.length;
+		logger.info(String.format("Write meta to %s cost %d ms, size %d bytes, writeRate: %.3f m/s", filename,
+				end - start, meta.length, ((double) totalWriteDiskSize) / (1 << 20) / totalWriteDiskCost * 1000));
 	}
 
 	class PersistencyService implements Runnable {
@@ -282,10 +296,13 @@ class MetaInfo extends HashMap<String, BucketMeta> {
 		StringBuffer sbq = new StringBuffer();
 		for (String q : queues) {
 			sbq.append(q);
+			sbq.append(", ");
 		}
+
 		StringBuffer sbt = new StringBuffer();
 		for (String t : topics) {
 			sbt.append(t);
+			sbt.append(", ");
 		}
 		return String.format(
 				"queueSize = %d, topicsSize = %d, numMetaRecord = %d, numTotalSegs = %d, numTotalMsgs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
