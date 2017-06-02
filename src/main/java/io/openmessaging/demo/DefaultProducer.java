@@ -131,5 +131,9 @@ public class DefaultProducer implements Producer {
 		// DefaultBytesMessage.numPropDouble.get(),
 		// DefaultBytesMessage.numPropLong.get()));
 
+		logger.info(String.format("maxKeySize = %d, maxValueSize = %d, maxKvSize = %d,maxKvNum = %d",
+				DefaultBytesMessage.maxKeySize, DefaultBytesMessage.maxValueSize, DefaultBytesMessage.maxKvSize,
+				DefaultBytesMessage.maxKvNum));
+
 	}
 }

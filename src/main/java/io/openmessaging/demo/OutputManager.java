@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.RandomAccessFile;
-import java.io.Serializable;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -109,9 +108,11 @@ public class OutputManager {
 		allMetaInfo.setNumSuperSegs(persistencyService.numSuperSegs);
 		allMetaInfo.setNumTotalSegs(persistencyService.numTotalSegs);
 		allMetaInfo.setNumMetaRecord(persistencyService.numMetaRecord);
+		allMetaInfo.setFileSuperSegMap(persistencyService.fileSuperSegMap);
+		allMetaInfo.setSequentialOccurs(persistencyService.sequentialOccurs);
 
 		long start = System.currentTimeMillis();
-		ByteArrayOutputStream baos = new ByteArrayOutputStream(1 << 20); // 1Mb
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(2 << 20); // 1Mb
 		ObjectOutputStream oos;
 		try {
 			oos = new ObjectOutputStream(baos);
@@ -151,8 +152,14 @@ public class OutputManager {
 		int fileId = 0; // from 0
 		int numTotalSegs = 0;
 		int numMetaRecord = 0;
-
 		int numSuperSegs = 0;
+		int sequentialOccurs = 0;
+
+		HashMap<Integer, FileSuperSeg> fileSuperSegMap;
+
+		public PersistencyService() {
+			this.fileSuperSegMap = new HashMap<>();
+		}
 
 		@Override
 		public void run() {
@@ -195,8 +202,12 @@ public class OutputManager {
 		 * @param reqs
 		 */
 		private void persistSuperSegment(List<WriteRequest> reqs) {
-			numTotalSegs += reqs.size();
-			int fileSize = reqs.size() * Segment.CAPACITY;
+			int reqSize = reqs.size();
+			if (reqSize == 0) {
+				return;
+			}
+			numTotalSegs += reqSize;
+			int fileSize = reqSize * Segment.CAPACITY;
 			long start = System.currentTimeMillis();
 			RandomAccessFile memoryMappedFile = null;
 			MappedByteBuffer buffer = null;
@@ -210,6 +221,8 @@ public class OutputManager {
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
+			FileSuperSeg fileSuperSeg = new FileSuperSeg(reqSize);
+			fileSuperSegMap.put(superSegFileId, fileSuperSeg);
 
 			// keep the order of one bucket for combination
 			Collections.sort(reqs);
@@ -220,7 +233,7 @@ public class OutputManager {
 			int offset = 0, numSegs = 0;
 			for (int i = 0; i < reqs.size(); i++) {
 				WriteRequest req = reqs.get(i);
-				allMetaInfo.addBucketInfo(req.bucket);
+				// allMetaInfo.addBucketInfo(req.bucket);
 				byte[] data = req.seg.assemble();
 				buffer.put(data);
 				try {
@@ -229,7 +242,9 @@ public class OutputManager {
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
-				if (req.bucket != preBucket) {
+				if (!req.bucket.equals(preBucket)) {
+					sequentialOccurs++;
+					fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegs));
 					BucketMeta meta = allMetaInfo.get(preBucket);
 					if (meta == null) {
 						meta = new BucketMeta();
@@ -241,13 +256,16 @@ public class OutputManager {
 
 					preBucket = req.bucket;
 					preIndex = req.index;
-					offset = i;
+					// offset = i;
 					numSegs = 1;
 				} else {
 					numSegs++;
 				}
 			}
 			// last bucket group of segments
+			sequentialOccurs++;
+			fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegs));
+
 			BucketMeta meta = allMetaInfo.get(preBucket);
 			if (meta == null) {
 				meta = new BucketMeta();
@@ -258,210 +276,9 @@ public class OutputManager {
 			meta.addNumSegs(numSegs);
 
 			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes", ++numSuperSegs,
-					reqs.size(), numTotalSegs, filename, end - start, fileSize));
+			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes",
+					++numSuperSegs, reqs.size(), numTotalSegs, filename, end - start, fileSize));
 		}
-	}
-}
-
-// all meta info
-class MetaInfo extends HashMap<String, BucketMeta> {
-	private static final long serialVersionUID = 8853036030285630462L;
-
-	int queuesSize;
-	int topicsSize;
-	Set<String> queues, topics;
-
-	/**
-	 * the number of segment groups, each of which consists consecutive segments
-	 * within the same bucket.
-	 */
-	int numMetaRecord;
-
-	int numTotalSegs;
-	int numTotalMsgs;
-	int numDataFiles;
-	int numSuperSegs;
-
-	/**
-	 * the bucket partition values of sequential segments in the data store. we
-	 * can partition the segments of the same bucket to the same encoder service
-	 * for the message order. Use byte of its hashcode.
-	 */
-	ArrayList<Byte> bucketParts = new ArrayList<>(65536);
-	transient int cursorOfBucketParts = 0;
-
-	@Override
-	public String toString() {
-		StringBuffer sbq = new StringBuffer();
-		for (String q : queues) {
-			sbq.append(q);
-			sbq.append(", ");
-		}
-
-		StringBuffer sbt = new StringBuffer();
-		for (String t : topics) {
-			sbt.append(t);
-			sbt.append(", ");
-		}
-		return String.format(
-				"queueSize = %d, topicsSize = %d, numMetaRecord = %d, numTotalSegs = %d, numTotalMsgs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
-				queuesSize, topicsSize, numMetaRecord, numTotalSegs, numTotalMsgs, numDataFiles, numSuperSegs,
-				sbq.toString(), sbt.toString());
-
-	}
-
-	public void addBucketInfo(String bucket) {
-		bucketParts.add((byte) bucket.hashCode());
-	}
-
-	public Byte getNextBucketPart() {
-		if (cursorOfBucketParts < bucketParts.size()) {
-			return bucketParts.get(cursorOfBucketParts++);
-		} else {
-			return null;
-		}
-	}
-
-	public void setBucketParts(ArrayList<Byte> bucketParts) {
-		this.bucketParts = bucketParts;
-	}
-
-	public int getNumTotalSegs() {
-		return numTotalSegs;
-	}
-
-	public void setNumTotalSegs(int numTotalSegs) {
-		this.numTotalSegs = numTotalSegs;
-	}
-
-	public Set<String> getQueues() {
-		return queues;
-	}
-
-	public void setQueues(Set<String> queues) {
-		this.queues = queues;
-	}
-
-	public Set<String> getTopics() {
-		return topics;
-	}
-
-	public void setTopics(Set<String> topics) {
-		this.topics = topics;
-	}
-
-	public MetaInfo(int numBuckets) {
-		super(numBuckets);
-	}
-
-	public int getQueuesSize() {
-		return queuesSize;
-	}
-
-	public void setQueuesSize(int queuesSize) {
-		this.queuesSize = queuesSize;
-	}
-
-	public int getTopicsSize() {
-		return topicsSize;
-	}
-
-	public void setTopicsSize(int topicsSize) {
-		this.topicsSize = topicsSize;
-	}
-
-	public int getNumTotalMsgs() {
-		return numTotalMsgs;
-	}
-
-	public void setNumTotalMsgs(int numTotalMsgs) {
-		this.numTotalMsgs = numTotalMsgs;
-	}
-
-	public int getNumDataFiles() {
-		return numDataFiles;
-	}
-
-	public void setNumDataFiles(int numDataFiles) {
-		this.numDataFiles = numDataFiles;
-	}
-
-	public int getNumSuperSegs() {
-		return numSuperSegs;
-	}
-
-	public void setNumSuperSegs(int numSuperSegs) {
-		this.numSuperSegs = numSuperSegs;
-	}
-
-	public int getNumMetaRecord() {
-		return numMetaRecord;
-	}
-
-	public void setNumMetaRecord(int numMetaRecord) {
-		this.numMetaRecord = numMetaRecord;
-	}
-}
-
-// One bucket, one segment meta
-class BucketMeta implements Serializable {
-
-	private static final long serialVersionUID = -867852685475432061L;
-
-	int numSegs;
-
-	/**
-	 * index is the sequential number of message in the bucket. file is ID of
-	 * the data file. offset is the segment offset in the file. Unit is one
-	 * segment. length is the number of segments. |index, file, offset, length |
-	 * index, file, offset, length | ... |
-	 */
-	ArrayList<Integer> content;
-	public transient final static int META_INT_UNIT_SIZE = 4;
-
-	BucketMeta() {
-		content = new ArrayList<>(40 * META_INT_UNIT_SIZE);
-	}
-
-	/**
-	 * Append the meta info of the bucket in one file
-	 * 
-	 * @param index
-	 *            message index
-	 * @param fileId
-	 *            id of the disk file
-	 * @param offset
-	 *            segment unit offset in the file
-	 * @param length
-	 *            the number of segments
-	 */
-	public void addMetaRecord(int index, int fileId, int offset, int length) {
-		content.add(index);
-		content.add(fileId);
-		content.add(offset);
-		content.add(length);
-	}
-
-	public ArrayList<Integer> getContent() {
-		return content;
-	}
-
-	public void setContent(ArrayList<Integer> content) {
-		this.content = content;
-	}
-
-	public int getNumSegs() {
-		return numSegs;
-	}
-
-	public int addNumSegs(int delta) {
-		this.numSegs += delta;
-		return this.numSegs;
-	}
-
-	public void setNumSegs(int numSegs) {
-		this.numSegs = numSegs;
 	}
 }
 

@@ -30,7 +30,7 @@ public class Config {
 
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
-	public static final int NUM_ENCODER_MESSAGE_THREAD = 2;
+	public static final int NUM_ENCODER_MESSAGE_THREAD = 4;
 	public static final int READ_BUFFER_QUEUE_SIZE = 10000; // very large
 	public static final int READ_MSG_QUEUE_SIZE = Integer.MAX_VALUE;
 

@@ -125,7 +125,6 @@ public class BucketWriteBox {
 		// send segment to i/o manager
 		for (WritableSegment currSegment : currentWriteSegsMap.values()) {
 			outputManager.writeSegment(this.freeQueue, bucket, currSegment, msgIndex);
-			currSegment = null;
 		}
 	}
 }

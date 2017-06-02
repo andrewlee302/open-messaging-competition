@@ -1,5 +1,6 @@
 package io.openmessaging.demo;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.RandomAccessFile;
@@ -39,7 +40,7 @@ public class InputManager {
 	 * within a specific readBufferQueue.
 	 */
 	private BlockingQueue<MappedByteBufferStruct>[] readBufferQueues;
-	private HashMap<Byte, BlockingQueue<MappedByteBufferStruct>> bucketReadBufferQueueMap;
+	private HashMap<String, BlockingQueue<MappedByteBufferStruct>> bucketReadBufferQueueMap;
 	private MessageEncoderService[] msgEncoderServices;
 	private Thread[] msgEncoderThreads;
 
@@ -70,8 +71,7 @@ public class InputManager {
 		bucketReadBufferQueueMap = new HashMap<>(Config.NUM_BUCKETS);
 		int tempCnt = 0;
 		for (String bucket : Config.HACK_BUCKETS) {
-			bucketReadBufferQueueMap.put((byte) bucket.hashCode(),
-					readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
+			bucketReadBufferQueueMap.put(bucket, readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
 		}
 
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
@@ -157,55 +157,80 @@ public class InputManager {
 
 		long totalReadDiskCost = 0; // ms
 		long totalReadDiskSize = 0; // bytes
+		int numReadSegs = 0;
 
 		@Override
 		public void run() {
+			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap();
 			for (int fileId = 0; fileId < allMetaInfo.numDataFiles; fileId++) {
+				FileSuperSeg fileSuperSeg = fileSuperSegMap.get(fileId);
 				long start = System.currentTimeMillis();
-				RandomAccessFile memoryMappedFile = null;
 				Path p = Paths.get(storePath, fileId + ".data");
 				String filename = p.toString();
-				long fileSize = 0;
-				try {
-					memoryMappedFile = new RandomAccessFile(filename, "r");
-					fileSize = memoryMappedFile.length();
-					// load the segments into the physical memory
-					// TODO, when to put the buffer, avoiding the page swap.
-					int numSegs = (int) (fileSize / Segment.CAPACITY);
-					for (int i = 0; i < numSegs; i++) {
-						MappedByteBuffer buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
-								i * Segment.CAPACITY, Segment.CAPACITY);
-						buffer.load();
-						bucketReadBufferQueueMap.get(allMetaInfo.getNextBucketPart())
-								.put(new MappedByteBufferStruct(buffer, 0, Segment.CAPACITY));
-					}
-					numFetchSegs.addAndGet(numSegs);
-					numFetchSuperSegs.incrementAndGet();
-					memoryMappedFile.close();
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} finally {
-					memoryMappedFile = null;
+
+				numReadSegs += fileSuperSeg.numSegsInSuperSeg;
+
+				/**
+				 * readFileSize isn't same with file size necessarily.
+				 */
+				long readFileSize = fileSuperSeg.numSegsInSuperSeg * Segment.CAPACITY;
+				long actualFileSize = new File(filename).length();
+				if (readFileSize > actualFileSize) {
+					logger.warning("read size (" + readFileSize + ") exceeds actual file size (" + actualFileSize + ")");
 				}
+				if (readFileSize < actualFileSize) {
+					logger.warning(
+							"read size (" + readFileSize + ") is less than actual file size (" + actualFileSize + ")");
+				}
+
+				int segCursor = 0;
+				for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
+					String bucket = sss.bucket;
+					RandomAccessFile memoryMappedFile = null;
+					try {
+						memoryMappedFile = new RandomAccessFile(filename, "r");
+						MappedByteBuffer buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
+								segCursor * Segment.CAPACITY, sss.numSegs * Segment.CAPACITY);
+						// load the segments into the physical memory
+						// TODO, when to put the buffer, avoiding the page swap.
+						buffer.load();
+
+//						logger.info(
+//								String.format("file = %d, bucket = %s, numSegs = %d", fileId, sss.bucket, sss.numSegs));
+						BlockingQueue<MappedByteBufferStruct> readBufferQueue = bucketReadBufferQueueMap.get(bucket);
+						if (readBufferQueue == null) {
+							logger.severe("lack corresponding readBufferQueue " + bucket);
+						}
+						readBufferQueue.put(
+								new MappedByteBufferStruct(bucket, buffer, 0, sss.numSegs));
+						segCursor += sss.numSegs;
+
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					} catch (IOException e) {
+						e.printStackTrace();
+					} finally {
+						try {
+							memoryMappedFile.close();
+						} catch (IOException e) {
+							memoryMappedFile = null;
+						}
+					}
+				}
+
+				numFetchSegs.addAndGet(numReadSegs);
+				numFetchSuperSegs.incrementAndGet();
 
 				long end = System.currentTimeMillis();
 
 				totalReadDiskCost += (end - start);
-				totalReadDiskSize += fileSize;
+				totalReadDiskSize += readFileSize;
 
 				logger.info(String.format(
 						"(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms, size %d bytes, readRate: %.3f m/s",
-						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, fileSize,
+						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, readFileSize,
 						((double) totalReadDiskSize) / (1 << 20) / totalReadDiskCost * 1000));
 			}
-			Byte mustNull = allMetaInfo.getNextBucketPart();
-			if (mustNull != null) {
-				logger.info("Must be wrong");
-			}
-
 			logger.info("Read all the files, emit finish signal");
 			for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
 				try {
@@ -236,7 +261,8 @@ public class InputManager {
 					if (bufferStruct instanceof NullMappedByteBufferStruct) {
 						break;
 					} else {
-						processSegment(bufferStruct.buffer, bufferStruct.offsetInSuperSegment, bufferStruct.segLength);
+						processSequentialSegments(bufferStruct.bucket, bufferStruct.buffer,
+								bufferStruct.offsetInMappedByffer, bufferStruct.segNum);
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
@@ -246,77 +272,75 @@ public class InputManager {
 		}
 
 		/**
-		 * process a single segments
+		 * process seqential segs with the same bucket
 		 * 
 		 * @param buffer
 		 * @param offsetInSuperSegment
 		 * @param segLength
 		 */
-		private void processSegment(MappedByteBuffer buffer, int offsetInSuperSegment, int segLength) {
-			ReadableSegment readSegment = ReadableSegment.wrap(buffer, offsetInSuperSegment, segLength);
-			String b = readSegment.bucket;
-			int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
-			ArrayList<BlockingQueue<Message>> queueList = bucketBindingMsgQueuesMap.get(b);
-			Message msg;
-			try {
-				while (true) {
-					msg = readSegment.read();
-					for (BlockingQueue<Message> queue : queueList)
-						queue.put(msg);
+		private void processSequentialSegments(String bucket, MappedByteBuffer buffer, int offsetInMappedByffer,
+				int segNum) {
+			for (int i = 0; i < segNum; i++) {
+				ReadableSegment readSegment = ReadableSegment.wrap(buffer, offsetInMappedByffer + i * Segment.CAPACITY,
+						Segment.CAPACITY);
+				String b = readSegment.bucket;
+				if (!b.equals(bucket)) {
+					logger.warning("Error " + b + " != " + bucket);
 				}
-			} catch (SegmentEmptyException e) {
-				// send the nullMessage as a signal
-				if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
-					for (BlockingQueue<Message> queue : queueList)
-						try {
-							queue.put(new NullMessage(null));
-						} catch (InterruptedException e1) {
-							e1.printStackTrace();
-						}
+				int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
+				ArrayList<BlockingQueue<Message>> queueList = bucketBindingMsgQueuesMap.get(b);
+				Message msg;
+				try {
+					while (true) {
+						msg = readSegment.read();
+						for (BlockingQueue<Message> queue : queueList)
+							queue.put(msg);
+					}
+				} catch (SegmentEmptyException e) {
+					// send the nullMessage as a signal
+					if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
+						for (BlockingQueue<Message> queue : queueList)
+							try {
+								queue.put(new NullMessage(null));
+							} catch (InterruptedException e1) {
+								e1.printStackTrace();
+							}
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
 				}
-			} catch (InterruptedException e) {
-				e.printStackTrace();
 			}
-		}
-
-		/**
-		 * process all segments in a super-segment
-		 * 
-		 * @param bufferAndNumSegs
-		 *            buffer
-		 */
-		@SuppressWarnings("unused")
-		private void processSuperSegment(MappedByteBufferAndNumSegs bufferAndNumSegs) {
-			long start = System.currentTimeMillis();
-			MappedByteBuffer buffer = bufferAndNumSegs.buffer;
-			int numSegs = bufferAndNumSegs.numSegs;
-
-			int localNumSuperSegs = numConsumeSuperSegs.incrementAndGet();
-			int localNumSegs = numConsumeSegs.addAndGet(numSegs);
-
-			int superSegmentSize = numSegs * Segment.CAPACITY;
-			for (int i = 0; i < numSegs; i++) {
-				processSegment(buffer, i * Segment.CAPACITY, Segment.CAPACITY);
-			}
-			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth superseg, %dth seg) decode super-segment cost %d ms, size %d bytes",
-					localNumSuperSegs, localNumSegs, end - start, superSegmentSize));
 		}
 	}
 
 	class MappedByteBufferStruct {
+		/**
+		 * the new buffer, not derived from basic buffer
+		 */
 		MappedByteBuffer buffer;
-		int offsetInSuperSegment;
-		int segLength;
+		/**
+		 * the offset is not the file offset ( as the super-segment)
+		 * is the offset of the new bytebuffer
+		 */
+		int offsetInMappedByffer;
+		int segNum;
+		String bucket;
 
 		MappedByteBufferStruct() {
 
 		}
 
+		MappedByteBufferStruct(String bucket, MappedByteBuffer buffer, int offset, int segNum) {
+			this.bucket = bucket;
+			this.buffer = buffer;
+			this.offsetInMappedByffer = offset;
+			this.segNum = segNum;
+		}
+
 		MappedByteBufferStruct(MappedByteBuffer buffer, int offset, int length) {
 			this.buffer = buffer;
-			this.offsetInSuperSegment = offset;
-			this.segLength = length;
+			this.offsetInMappedByffer = offset;
+			this.segNum = segNum;
 		}
 	}
 

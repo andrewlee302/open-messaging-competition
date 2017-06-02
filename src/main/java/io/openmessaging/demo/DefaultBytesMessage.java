@@ -27,6 +27,11 @@ public class DefaultBytesMessage implements BytesMessage {
 	// transient static AtomicInteger numPropDouble = new AtomicInteger();
 	// transient static AtomicInteger numPropLong = new AtomicInteger();
 
+	static transient int maxKeySize = 0;
+	static transient int maxValueSize = 0;
+	static transient int maxKvSize = 0;
+	static transient int maxKvNum = 0;
+
 	public DefaultBytesMessage(byte[] body) {
 		this.body = body;
 		headers = new DefaultKeyValue();
@@ -44,9 +49,9 @@ public class DefaultBytesMessage implements BytesMessage {
 	 * String value. key, value offset is 1 byte.
 	 */
 	static final int HEADER_SIZE = 6;
-	private transient int numHeaderKvs = 0;
-	private transient int numPropKvs = 0;
-	private transient int kvSize = 0;
+	transient int numHeaderKvs = 0;
+	transient int numPropKvs = 0;
+	transient int kvSize = 0;
 
 	/**
 	 * all offset is relative to the msg region, instead of the whole buff
@@ -58,6 +63,13 @@ public class DefaultBytesMessage implements BytesMessage {
 	 * @return msg size. if 0, failed.
 	 */
 	public int serializeToArray(byte[] buff, int off, int len) {
+		if (kvSize > maxKvSize) {
+			maxKvSize = kvSize;
+		}
+		if (numHeaderKvs + numPropKvs > maxKvNum) {
+			maxKvNum = numHeaderKvs + numPropKvs;
+		}
+
 		int kvStart = HEADER_SIZE + (numHeaderKvs + numPropKvs) * 2 + 1;
 		int bodyStart = kvStart + kvSize;
 		int msgSize = bodyStart + body.length;
@@ -262,6 +274,10 @@ public class DefaultBytesMessage implements BytesMessage {
 	@Override
 	public Message putHeaders(String key, String value) {
 		numHeaderKvs++;
+		if (key.length() > maxKeySize)
+			maxKeySize = key.length();
+		if (value.length() > maxValueSize)
+			maxValueSize = value.length();
 		kvSize += (key.length() + value.length());
 		headers.put(key, value);
 		return this;
@@ -295,6 +311,10 @@ public class DefaultBytesMessage implements BytesMessage {
 	public Message putProperties(String key, String value) {
 		if (properties == null)
 			properties = new DefaultKeyValue();
+		if (key.length() > maxKeySize)
+			maxKeySize = key.length();
+		if (value.length() > maxValueSize)
+			maxValueSize = value.length();
 		numPropKvs++;
 		kvSize += (key.length() + value.length());
 		properties.put(key, value);
