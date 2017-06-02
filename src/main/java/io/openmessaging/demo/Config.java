@@ -3,7 +3,7 @@ package io.openmessaging.demo;
 public class Config {
 
 	// all below are estimated values, not the fact
-	public static final int NUM_PRODUCERS = 20;
+	public static final int NUM_PRODUCERS = 10;
 	public static final int NUM_CONSUMERS = 10;
 
 	public static final int NUM_QUEUES = NUM_CONSUMERS;
@@ -16,7 +16,7 @@ public class Config {
 	public static final int WRITE_REQUEST_QUEUE_SIZE = 32;
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // ms
-	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 2;
+	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 10;
 
 	/**
 	 *  it directly relates to the messages' lifecycle.

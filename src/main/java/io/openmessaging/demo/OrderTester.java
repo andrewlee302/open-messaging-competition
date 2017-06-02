@@ -22,6 +22,39 @@ public class OrderTester {
 	static HashMap<Integer, HashMap<Integer, Integer>> producerSeqs = new HashMap<>();
 
 	public static void main(String[] args) {
+		testRead();
+	}
+
+	public static void testRead() {
+		long start, end;
+		start = System.currentTimeMillis();
+		File dir = new File(dirPath);
+		String[] files = dir.list();
+		for (int fileId = 0; fileId < files.length - 1; fileId++) {
+			String file = fileId + ".data";
+			String filename = Paths.get(dirPath, file).toString();
+			System.out.println("Read msgs from " + filename);
+			RandomAccessFile memoryMappedFile = null;
+			long fileSize = 0;
+			MappedByteBuffer buffer = null;
+			try {
+				memoryMappedFile = new RandomAccessFile(filename, "r");
+				fileSize = memoryMappedFile.length();
+				buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, fileSize);
+				memoryMappedFile.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			buffer.load();
+			end = System.currentTimeMillis();
+			System.out.println("cost " + (end - start) + " ms");
+		}
+	}
+
+	public static void testOrder(String[] args) {
+		long start, end;
+		start = System.currentTimeMillis();
 		File dir = new File(dirPath);
 		String[] files = dir.list();
 		for (int fileId = 0; fileId < files.length - 1; fileId++) {
@@ -90,7 +123,8 @@ public class OrderTester {
 				}
 			}
 			System.out.println(numTotalSegs);
-
+			end = System.currentTimeMillis();
+			System.out.println("cost " + (end - start) + " ms");
 		}
 	}
 
@@ -99,7 +133,8 @@ public class OrderTester {
 	}
 
 	private static void correct(int producerId, int bucketId, int seq, int expected) {
-//		System.out.println(String.format("C[%d %d %d], %d", producerId, bucketId, seq, expected));
+		// System.out.println(String.format("C[%d %d %d], %d", producerId,
+		// bucketId, seq, expected));
 	}
 
 }

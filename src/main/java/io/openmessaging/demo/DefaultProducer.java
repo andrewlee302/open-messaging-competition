@@ -23,6 +23,7 @@ public class DefaultProducer implements Producer {
 		SmartMessageStore.STORE_PATH = this.properties.getString("STORE_PATH");
 		SmartMessageStore.IS_OUTPUT_OR_INPUT = true;
 		messageStore = SmartMessageStore.getInstance();
+		BucketWriteBox.register(this);
 	}
 
 	@Override

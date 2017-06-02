@@ -1,6 +1,10 @@
 package io.openmessaging.demo;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
@@ -26,7 +30,8 @@ public class BucketWriteBox {
 	private String bucket;
 	private LinkedBlockingQueue<WritableSegment> freeQueue;
 
-	private ConcurrentHashMap<Producer, WritableSegment> currentWriteSegsMap;
+	// private HashMap<Producer, WritableSegment> currentWriteSegsMap;
+	private HashMap<Producer, WritableSegment> currentWriteSegsMap;
 
 	private int msgIndex = 0; // start from 0
 
@@ -37,7 +42,6 @@ public class BucketWriteBox {
 	public BucketWriteBox(String bucket, int initSize) {
 		this.outputManager = OutputManager.getInstance();
 		this.bucket = bucket;
-		this.currentWriteSegsMap = new ConcurrentHashMap<>(Config.NUM_PRODUCERS);
 
 		this.freeQueue = new LinkedBlockingQueue<>(initSize);
 
@@ -48,6 +52,30 @@ public class BucketWriteBox {
 				e.printStackTrace();
 			}
 		}
+		try {
+			latch.await();
+			this.currentWriteSegsMap = new HashMap<>();
+			for (Producer p : producers) {
+				WritableSegment currSegment = freeQueue.take();
+				currentWriteSegsMap.put(p, currSegment);
+			}
+			logger.info("All producers registers");
+		} catch (InterruptedException e1) {
+			e1.printStackTrace();
+		}
+	}
+
+	static CountDownLatch latch = new CountDownLatch(Config.NUM_PRODUCERS);
+	static Set<Producer> producers = new HashSet<>();
+
+	/**
+	 * hack
+	 */
+	public static void register(Producer p) {
+		synchronized (producers) {
+			producers.add(p);
+		}
+		latch.countDown();
 	}
 
 	/**
@@ -61,14 +89,6 @@ public class BucketWriteBox {
 	 */
 	public void cache(Producer p, Message msg) {
 		WritableSegment currSegment = currentWriteSegsMap.get(p);
-		if (currSegment == null) {
-			try {
-				currSegment = freeQueue.take();
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-			currentWriteSegsMap.put(p, currSegment);
-		}
 
 		// !!! optimization, keep the order in the a producer
 		// reduce the contention

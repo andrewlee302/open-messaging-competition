@@ -105,6 +105,8 @@ public class OutputManager {
 		allMetaInfo.setQueues(queues);
 		allMetaInfo.setTopics(topics);
 		allMetaInfo.setNumDataFiles(persistencyService.fileId);
+		// same with numDataFiles
+		allMetaInfo.setNumSuperSegs(persistencyService.numSuperSegs);
 		allMetaInfo.setNumTotalSegs(persistencyService.numTotalSegs);
 		allMetaInfo.setNumMetaRecord(persistencyService.numMetaRecord);
 
@@ -150,7 +152,7 @@ public class OutputManager {
 		int numTotalSegs = 0;
 		int numMetaRecord = 0;
 
-		int persistCnt = 0;
+		int numSuperSegs = 0;
 
 		@Override
 		public void run() {
@@ -256,7 +258,7 @@ public class OutputManager {
 			meta.addNumSegs(numSegs);
 
 			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes", ++persistCnt,
+			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes", ++numSuperSegs,
 					reqs.size(), numTotalSegs, filename, end - start, fileSize));
 		}
 	}
