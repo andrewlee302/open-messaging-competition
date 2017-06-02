@@ -111,24 +111,7 @@ class WritableSegment extends Segment {
 		return buff;
 	}
 
-	class SegmentOutputStream extends OutputStream {
-		ByteBuffer msgBuffer;
 
-		SegmentOutputStream(ByteBuffer msgBuffer) {
-			this.msgBuffer = msgBuffer;
-		}
-
-		@Override
-		public void write(int b) throws IOException {
-			msgBuffer.put((byte) b);
-		}
-
-		@Override
-		public void write(byte b[], int off, int len) throws IOException {
-			msgBuffer.put(b, off, len);
-		}
-
-	}
 
 	/**
 	 * recovery to the initial status
@@ -236,6 +219,48 @@ class ReadableSegment extends Segment {
 			offsets[i] = ib.get();
 		}
 	}
+}
+
+class SegmentInputStream extends InputStream {
+
+   	ByteBuffer msgBuffer;
+
+   	SegmentInputStream(byte[] buff) {
+   		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
+   	}
+
+   	@Override
+   	public int read() throws IOException {
+   		return msgBuffer.get();
+   	}
+
+   	@Override
+   	public int read(byte dst[], int off, int len) throws IOException {
+   		msgBuffer.get(dst, off, len);
+   		return len;
+   	}
+}
+
+class SegmentOutputStream extends OutputStream {
+   	ByteBuffer msgBuffer;
+
+   	SegmentOutputStream(ByteBuffer msgBuffer) {
+   		this.msgBuffer = msgBuffer;
+   	}
+
+   	SegmentOutputStream(byte[] buff) {
+   		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
+   	}
+
+   	@Override
+   	public void write(int b) throws IOException {
+   		msgBuffer.put((byte) b);
+   	}
+
+   	@Override
+   	public void write(byte b[], int off, int len) throws IOException {
+   		msgBuffer.put(b, off, len);
+   	}
 }
 
 class MappedByteBufferInputStream extends InputStream {

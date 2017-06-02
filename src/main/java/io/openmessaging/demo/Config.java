@@ -15,15 +15,14 @@ public class Config {
 	// tuning!
 	public static final int WRITE_REQUEST_QUEUE_SIZE = 32;
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
-	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // 500ms
-	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10;
+	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // ms
+	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 2;
 	/**
 	 *  it directly relates to the messages' lifecycle.
 	 */
 	public static final int SEGMENT_SIZE = 1 << 17;
 
 	public static final int AVERAGE_MSG_SIZE = 100;
-
 
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
@@ -33,5 +32,10 @@ public class Config {
 
 	// useless temporarily
 	public static final int SEGMENT_READ_QUEUE_SIZE = 10;
-
+	
+	// All segments' size: 10 * 1M * 100 = 1G
+	// 40000000 message needs 4000 segment if size of a
+	// segment a message is 1 MByte and 100 bytes,
+	// so every bucket needs 40 segments averagely.
+	// WRITE_SEGMENT_QUEUE_SIZE
 }

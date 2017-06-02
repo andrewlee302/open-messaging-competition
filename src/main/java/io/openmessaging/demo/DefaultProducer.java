@@ -60,7 +60,7 @@ public class DefaultProducer implements Producer {
 			throw new ClientOMSException(String.format("Queue:%s Topic:%s should put one and only one", true, queue));
 		}
 
-		messageStore.putMessage(topic != null ? topic : queue, message);
+		messageStore.putMessage(topic != null ? topic : queue, this, message);
 	}
 
 	@Override
