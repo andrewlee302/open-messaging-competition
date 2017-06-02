@@ -1,5 +1,8 @@
 package io.openmessaging.demo;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class Config {
 
 	// all below are estimated values, not the fact
@@ -23,12 +26,12 @@ public class Config {
 	 */
 	public static final int SEGMENT_SIZE = 1 << 16;
 
-	public static final int AVERAGE_MSG_SIZE = 185;
+	public static final int AVERAGE_MSG_SIZE = 133;
 
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
-	public static final int NUM_ENCODER_MESSAGE_THREAD = 4;
-	public static final int READ_BUFFER_QUEUE_SIZE = 1000; // very large
+	public static final int NUM_ENCODER_MESSAGE_THREAD = 2;
+	public static final int READ_BUFFER_QUEUE_SIZE = 10000; // very large
 	public static final int READ_MSG_QUEUE_SIZE = Integer.MAX_VALUE;
 
 	// useless temporarily
@@ -39,4 +42,22 @@ public class Config {
 	// segment a message is 1 MByte and 100 bytes,
 	// so every bucket needs 40 segments averagely.
 	// WRITE_SEGMENT_QUEUE_SIZE
+	
+	
+	// -----------------------------------------
+	public final static Set<String> HACK_BUCKETS = new HashSet<>(Config.NUM_BUCKETS);
+	public final static Set<String> HACK_QUEUES = new HashSet<>(Config.NUM_QUEUES);
+	public final static Set<String> HACK_TOPICS = new HashSet<>(Config.NUM_TOPICS);
+	static {
+		for (int i = 0; i < Config.NUM_QUEUES; i++) {
+			String bucket = "QUEUE_" + i;
+			HACK_BUCKETS.add(bucket);
+			HACK_QUEUES.add(bucket);
+		}
+		for (int i = 0; i < Config.NUM_TOPICS; i++) {
+			String bucket = "TOPIC_" + i;
+			HACK_BUCKETS.add(bucket);
+			HACK_TOPICS.add(bucket);
+		}
+	}
 }

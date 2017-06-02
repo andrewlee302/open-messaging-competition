@@ -7,12 +7,10 @@ import java.util.Set;
 
 import io.openmessaging.KeyValue;
 
-public class DefaultKeyValue implements KeyValue, Serializable {
+public class DefaultKeyValue implements KeyValue {
 
-	private static final long serialVersionUID = 5163720175219931433L;
-
-	private final Map<String, Object> kvs = new HashMap<>();
-
+	final Map<String, Object> kvs = new HashMap<>();
+	
 	@Override
 	public KeyValue put(String key, int value) {
 		kvs.put(key, value);

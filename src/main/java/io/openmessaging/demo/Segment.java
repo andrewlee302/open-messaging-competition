@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 import java.nio.MappedByteBuffer;
+import java.util.Arrays;
 import java.util.logging.Logger;
 
 import io.openmessaging.Message;
@@ -24,15 +25,16 @@ import io.openmessaging.Message;
 public abstract class Segment {
 	protected static Logger logger = Logger.getGlobal();
 
+	// all offset is the relative offset in the segment
 	static final int CAPACITY = Config.SEGMENT_SIZE;
-	static final int quantitySize = 4, offsetSize = 4;
-
+	static final int QUANTITY_SIZE = 4;
 	static final int AVERAGE_MSG_SIZE = Config.AVERAGE_MSG_SIZE;
-	static final int maxNumMsg = (CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME)
+	static final int MAX_NUM_MSG = (CAPACITY - QUANTITY_SIZE * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME)
 			/ (AVERAGE_MSG_SIZE + 4);
-	static final int offsetRegionSize = maxNumMsg * 4;
-	static final int msgRegionSize = CAPACITY - quantitySize * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME - offsetRegionSize;
-	static final int msgRegionOffset = Config.MAXIMUM_SIZE_BUCKET_NAME + quantitySize * 2 + offsetRegionSize;
+	static final int OFFSET_REGION_SIZE = MAX_NUM_MSG * 4;
+	static final int MSG_REGION_SIZE = CAPACITY - QUANTITY_SIZE * 2 - Config.MAXIMUM_SIZE_BUCKET_NAME
+			- OFFSET_REGION_SIZE;
+	static final int MSG_REGION_OFFSET = Config.MAXIMUM_SIZE_BUCKET_NAME + QUANTITY_SIZE * 2 + OFFSET_REGION_SIZE;
 
 	String bucket = null;
 	int numMsgs = 0; // actual quantity
@@ -43,44 +45,46 @@ public abstract class Segment {
 	int[] offsets;
 
 	Segment() {
-		offsets = new int[maxNumMsg];
+		offsets = new int[MAX_NUM_MSG];
 	}
 }
 
 class WritableSegment extends Segment {
 	byte[] buff;
 	ByteBuffer msgBuffer;
-	SegmentOutputStream segOutput;
-	ObjectOutputStream msgOutput;
+	int msgWriteCursor = MSG_REGION_OFFSET;
 
 	WritableSegment(String bucket) {
 		super();
 		this.bucket = bucket;
 		buff = new byte[CAPACITY];
-		msgBuffer = ByteBuffer.wrap(buff, msgRegionOffset, msgRegionSize);
-		segOutput = new SegmentOutputStream(msgBuffer);
-		try {
-			msgOutput = new ObjectOutputStream(segOutput);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		msgBuffer = ByteBuffer.wrap(buff, MSG_REGION_OFFSET, MSG_REGION_SIZE);
+
 	}
 
-	public void append(Message msg) throws SegmentFullException {
-		if (numMsgs >= maxNumMsg) {
+	public void append(Message message) throws SegmentFullException {
+		if (numMsgs >= MAX_NUM_MSG) {
 			throw new SegmentFullException(true);
 		}
-		int pos = msgBuffer.position();
-		msgBuffer.mark();
-		try {
-			msgOutput.writeObject(msg);
-		} catch (BufferOverflowException e) {
-			msgBuffer.reset();
+		DefaultBytesMessage msg = (DefaultBytesMessage) message;
+		int len = MSG_REGION_SIZE - msgWriteCursor;
+		int msgSize = msg.serializeToArray(buff, msgWriteCursor, len);
+		if (msgSize != 0) {
+			// logger.info(String.format("succ msgWriteCursor = %d, len = %d",
+			// msgWriteCursor, len));
+			// byte[] temp = new byte[msgSize];
+			// System.arraycopy(buff, msgWriteCursor, temp, 0, msgSize);
+			// DefaultBytesMessage newMsg =
+			// DefaultBytesMessage.deserializeToMsg(temp);
+			// logger.info(new String(temp));
+			offsets[numMsgs++] = msgWriteCursor;
+			msgWriteCursor += msgSize;
+		} else {
+			// logger.info(String.format("fail msgWriteCursor = %d, len = %d",
+			// msgWriteCursor, len));
 			throw new SegmentFullException(false);
-		} catch (IOException e) {
-			e.printStackTrace();
 		}
-		offsets[numMsgs++] = pos;
+
 	}
 
 	// for write request
@@ -95,37 +99,26 @@ class WritableSegment extends Segment {
 			logger.severe(bucket + " Exceeds the Config.MAXIMUM_SIZE_BUCKET_NAME = " + Config.MAXIMUM_SIZE_BUCKET_NAME);
 		}
 
-		msgBuffer.position(quantitySize);
+		msgBuffer.position(QUANTITY_SIZE);
 		CharBuffer cb = msgBuffer.asCharBuffer();
 		cb.put(bucket);
 
-		msgBuffer.position(quantitySize + Config.MAXIMUM_SIZE_BUCKET_NAME);
+		msgBuffer.position(QUANTITY_SIZE + Config.MAXIMUM_SIZE_BUCKET_NAME);
 		ib = msgBuffer.asIntBuffer();
 		ib.put(numMsgs);
 		for (int i = 0; i < numMsgs; i++) {
 			ib.put(offsets[i]);
 		}
-		// byte[] header = new byte[4];
-		// System.arraycopy(buff, msgRegionOffset, header, 0, 4);
-		// System.out.println(Arrays.toString(header));
 		return buff;
 	}
-
-
 
 	/**
 	 * recovery to the initial status
 	 */
 	public void clear() {
 		numMsgs = 0;
-		try {
-			msgOutput.close();
-			msgBuffer = ByteBuffer.wrap(buff, msgRegionOffset, msgRegionSize);
-			segOutput = new SegmentOutputStream(msgBuffer);
-			msgOutput = new ObjectOutputStream(segOutput);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		msgWriteCursor = MSG_REGION_OFFSET;
+		msgBuffer = ByteBuffer.wrap(buff, MSG_REGION_OFFSET, MSG_REGION_SIZE);
 	}
 }
 
@@ -140,28 +133,14 @@ class ReadableSegment extends Segment {
 	 */
 	int segLength;
 	MappedByteBuffer buffer;
-	MappedByteBufferInputStream mappedInput;
-	ObjectInputStream msgInput;
-	int readCursor = 0; // from 0
+	int readMsgIndex = 0; // from 0
 
 	private ReadableSegment(MappedByteBuffer buffer, int offset, int length) {
 		super();
 		this.buffer = buffer;
 		this.offsetInSuperSegment = offset;
 		this.segLength = length;
-		mappedInput = new MappedByteBufferInputStream(buffer);
 		disassemble();
-		try {
-			buffer.position(offsetInSuperSegment + msgRegionOffset);
-
-			// byte[] header = new byte[4];
-			// buffer.get(header);
-			// System.out.println(Arrays.toString(header));
-			buffer.position(offsetInSuperSegment + msgRegionOffset);
-			msgInput = new ObjectInputStream(mappedInput);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
 	}
 
 	public static ReadableSegment wrap(MappedByteBuffer buffer, int offset, int length) {
@@ -169,32 +148,17 @@ class ReadableSegment extends Segment {
 	}
 
 	public Message read() throws SegmentEmptyException {
-		if (readCursor >= numMsgs) {
-			try {
-				msgInput.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+		if (readMsgIndex >= numMsgs) {
 			throw new SegmentEmptyException();
 		}
-		Message msg = null;
-		int pos = buffer.position();
-		// logger.info(String.format("readCursor = %d, pos = %d, num = %d,
-		// offsets[readCursor] = %d", readCursor, pos, num,
-		// offsets[readCursor]));
-		try {
-			msg = (Message) msgInput.readObject();
-		} catch (ClassNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		// assert
-		if (offsets[readCursor++] + offsetInSuperSegment != pos) {
-			logger.severe(String.format("Offset meta is not consistent with the acutal message offsets, %d != %d",
-					offsets[readCursor - 1] + offsetInSuperSegment, pos));
-		}
+		// logger.info(
+		// String.format("readMsgIndex = %d, offsetInSuperSegment = %d,
+		// segLength = %d, offsets[readCursor] = %d",
+		// readMsgIndex, offsetInSuperSegment, segLength,
+		// offsets[readMsgIndex]));
+		Message msg = DefaultBytesMessage.deserializeToMsg(buffer, offsetInSuperSegment + offsets[readMsgIndex],
+				segLength - offsets[readMsgIndex]);
+		readMsgIndex++;
 		return msg;
 	}
 
@@ -205,14 +169,14 @@ class ReadableSegment extends Segment {
 		IntBuffer ib = buffer.asIntBuffer();
 		int bucketNameLen = ib.get();
 
-		buffer.position(offsetInSuperSegment + quantitySize);
+		buffer.position(offsetInSuperSegment + QUANTITY_SIZE);
 		CharBuffer cb = buffer.asCharBuffer();
 
 		char[] bucketChars = new char[bucketNameLen];
 		cb.get(bucketChars);
 		bucket = new String(bucketChars);
 
-		buffer.position(offsetInSuperSegment + quantitySize + Config.MAXIMUM_SIZE_BUCKET_NAME);
+		buffer.position(offsetInSuperSegment + QUANTITY_SIZE + Config.MAXIMUM_SIZE_BUCKET_NAME);
 		ib = buffer.asIntBuffer();
 		numMsgs = ib.get();
 		for (int i = 0; i < numMsgs; i++) {
@@ -223,44 +187,44 @@ class ReadableSegment extends Segment {
 
 class SegmentInputStream extends InputStream {
 
-   	ByteBuffer msgBuffer;
+	ByteBuffer msgBuffer;
 
-   	SegmentInputStream(byte[] buff) {
-   		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
-   	}
+	SegmentInputStream(byte[] buff) {
+		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
+	}
 
-   	@Override
-   	public int read() throws IOException {
-   		return msgBuffer.get();
-   	}
+	@Override
+	public int read() throws IOException {
+		return msgBuffer.get();
+	}
 
-   	@Override
-   	public int read(byte dst[], int off, int len) throws IOException {
-   		msgBuffer.get(dst, off, len);
-   		return len;
-   	}
+	@Override
+	public int read(byte dst[], int off, int len) throws IOException {
+		msgBuffer.get(dst, off, len);
+		return len;
+	}
 }
 
 class SegmentOutputStream extends OutputStream {
-   	ByteBuffer msgBuffer;
+	ByteBuffer msgBuffer;
 
-   	SegmentOutputStream(ByteBuffer msgBuffer) {
-   		this.msgBuffer = msgBuffer;
-   	}
+	SegmentOutputStream(ByteBuffer msgBuffer) {
+		this.msgBuffer = msgBuffer;
+	}
 
-   	SegmentOutputStream(byte[] buff) {
-   		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
-   	}
+	SegmentOutputStream(byte[] buff) {
+		msgBuffer = ByteBuffer.wrap(buff, 0, buff.length);
+	}
 
-   	@Override
-   	public void write(int b) throws IOException {
-   		msgBuffer.put((byte) b);
-   	}
+	@Override
+	public void write(int b) throws IOException {
+		msgBuffer.put((byte) b);
+	}
 
-   	@Override
-   	public void write(byte b[], int off, int len) throws IOException {
-   		msgBuffer.put(b, off, len);
-   	}
+	@Override
+	public void write(byte b[], int off, int len) throws IOException {
+		msgBuffer.put(b, off, len);
+	}
 }
 
 class MappedByteBufferInputStream extends InputStream {

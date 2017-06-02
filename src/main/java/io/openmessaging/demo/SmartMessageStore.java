@@ -66,19 +66,13 @@ public class SmartMessageStore {
 
 	private SmartMessageStore() {
 
-		logger.info("IS_OUTPUT_OR_INPUT : "+ IS_OUTPUT_OR_INPUT);
+		logger.info("IS_OUTPUT_OR_INPUT : " + IS_OUTPUT_OR_INPUT);
 		if (IS_OUTPUT_OR_INPUT) {
 			// output
 			this.bucketWriteBoxMap = new HashMap<>(Config.NUM_BUCKETS);
 
 			// TODO hack
-			String bucket = null;
-			for (int i = 0; i < Config.NUM_QUEUES; i++) {
-				bucket = "QUEUE_" + i;
-				bucketWriteBoxMap.put(bucket, new BucketWriteBox(bucket));
-			}
-			for (int i = 0; i < Config.NUM_TOPICS; i++) {
-				bucket = "TOPIC_" + i;
+			for (String bucket: Config.HACK_BUCKETS) {
 				bucketWriteBoxMap.put(bucket, new BucketWriteBox(bucket));
 			}
 			this.outputManager = OutputManager.getInstance();
@@ -96,13 +90,13 @@ public class SmartMessageStore {
 
 			this.consumerBindingMsgQueueMap = new HashMap<>(Config.NUM_QUEUES);
 			this.bucketBindingMsgQueuesMap = new HashMap<>(Config.NUM_BUCKETS);
-			for (String queue : existQueues) {
+			for (String queue : Config.HACK_QUEUES) {
 				consumerNullMsgNumMap.put(queue, 0);
 				consumerBindingMsgQueueMap.put(queue, new LinkedBlockingQueue<>(Config.READ_MSG_QUEUE_SIZE));
 				bucketBindingMsgQueuesMap.put(queue, new ArrayList<>(Config.NUM_QUEUES));
 			}
 
-			for (String topic : existTopics) {
+			for (String topic : Config.HACK_TOPICS) {
 				bucketBindingMsgQueuesMap.put(topic, new ArrayList<>(Config.NUM_QUEUES));
 			}
 		}

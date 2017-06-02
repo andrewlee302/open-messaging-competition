@@ -52,12 +52,9 @@ public class InputManager {
 		System.out.println(allMetaInfo.queues);
 		System.out.println(allMetaInfo.topics);
 		processedSegmentNumMap = new HashMap<>(allMetaInfo.queuesSize + allMetaInfo.topicsSize);
-		for (String queue : allMetaInfo.queues) {
-			processedSegmentNumMap.put(queue, new AtomicInteger());
-		}
 
-		for (String topic : allMetaInfo.topics) {
-			processedSegmentNumMap.put(topic, new AtomicInteger());
+		for (String bucket : Config.HACK_BUCKETS) {
+			processedSegmentNumMap.put(bucket, new AtomicInteger());
 		}
 
 		// start Fetch service and message encoder services
@@ -72,15 +69,11 @@ public class InputManager {
 		// uniform distribution
 		bucketReadBufferQueueMap = new HashMap<>(Config.NUM_BUCKETS);
 		int tempCnt = 0;
-		for (String queue : allMetaInfo.queues) {
-			bucketReadBufferQueueMap.put((byte) queue.hashCode(),
+		for (String bucket : Config.HACK_BUCKETS) {
+			bucketReadBufferQueueMap.put((byte) bucket.hashCode(),
 					readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
 		}
 
-		for (String topic : allMetaInfo.topics) {
-			bucketReadBufferQueueMap.put((byte) topic.hashCode(),
-					readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
-		}
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
 		msgEncoderThreads = new Thread[Config.NUM_ENCODER_MESSAGE_THREAD];
 
@@ -444,6 +437,5 @@ public class InputManager {
 			// TODO Auto-generated method stub
 			return 0;
 		}
-
 	}
 }

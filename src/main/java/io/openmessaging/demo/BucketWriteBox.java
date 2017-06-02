@@ -109,7 +109,7 @@ public class BucketWriteBox {
 				currSegment.append(msg);
 				msgIndex++;
 			} catch (SegmentFullException e2) {
-				logger.severe("Message is too big to be stored in a segment");
+				logger.severe(String.format("Message is too big to be stored in a segment. currNumMsg = %d, currCursor = %d.", currSegment.numMsgs , currSegment.msgWriteCursor));
 				System.exit(1);
 			} catch (InterruptedException e1) {
 				e1.printStackTrace();

@@ -22,7 +22,7 @@ public class OrderTester {
 	static HashMap<Integer, HashMap<Integer, Integer>> producerSeqs = new HashMap<>();
 
 	public static void main(String[] args) {
-		testRead();
+		testOrder();
 	}
 
 	public static void testRead() {
@@ -52,7 +52,7 @@ public class OrderTester {
 		}
 	}
 
-	public static void testOrder(String[] args) {
+	public static void testOrder() {
 		long start, end;
 		start = System.currentTimeMillis();
 		File dir = new File(dirPath);
@@ -133,8 +133,8 @@ public class OrderTester {
 	}
 
 	private static void correct(int producerId, int bucketId, int seq, int expected) {
-		// System.out.println(String.format("C[%d %d %d], %d", producerId,
-		// bucketId, seq, expected));
+		 System.out.println(String.format("C[%d %d %d], %d", producerId,
+		 bucketId, seq, expected));
 	}
 
 }

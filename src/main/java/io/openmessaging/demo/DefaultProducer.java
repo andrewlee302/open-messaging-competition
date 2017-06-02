@@ -118,12 +118,18 @@ public class DefaultProducer implements Producer {
 		// messageFactory.numMsg,
 		// messageFactory.numMsgLess100, messageFactory.numMsgMore200));
 
-		logger.info(String.format(
-				"numHeaderInt = %d, numHeaderString = %d, numHeaderDouble = %d,numHeaderLong = %d, numPropInt = %d, numPropString = %d, numPropDouble = %d, numPropLong = %d",
-				DefaultBytesMessage.numHeaderInt.get(), DefaultBytesMessage.numHeaderString.get(),
-				DefaultBytesMessage.numHeaderDouble.get(), DefaultBytesMessage.numHeaderLong.get(),
-				DefaultBytesMessage.numPropInt.get(), DefaultBytesMessage.numPropString.get(),
-				DefaultBytesMessage.numPropDouble.get(), DefaultBytesMessage.numPropLong.get()));
+		// logger.info(String.format(
+		// "numHeaderInt = %d, numHeaderString = %d, numHeaderDouble =
+		// %d,numHeaderLong = %d, numPropInt = %d, numPropString = %d,
+		// numPropDouble = %d, numPropLong = %d",
+		// DefaultBytesMessage.numHeaderInt.get(),
+		// DefaultBytesMessage.numHeaderString.get(),
+		// DefaultBytesMessage.numHeaderDouble.get(),
+		// DefaultBytesMessage.numHeaderLong.get(),
+		// DefaultBytesMessage.numPropInt.get(),
+		// DefaultBytesMessage.numPropString.get(),
+		// DefaultBytesMessage.numPropDouble.get(),
+		// DefaultBytesMessage.numPropLong.get()));
 
 	}
 }

@@ -8,6 +8,7 @@ import java.util.logging.Logger;
 
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
+import io.openmessaging.MessageHeader;
 import io.openmessaging.Producer;
 import io.openmessaging.PullConsumer;
 
@@ -114,6 +115,9 @@ public class StressProducerTester extends StressTester {
 							byte[] body = pack(ii, buekcetId, seqs[buekcetId]++);
 							msg = p.createBytesMessageToTopic(bucket, body);
 						}
+						msg.putHeaders(MessageHeader.MESSAGE_ID, "3mqr0g7j4seej");
+						msg.putProperties("PRO_OFFSET", "PRODUCER6_39855");
+						msg.putProperties("jjglulc", "yyv090r");
 						// logger.info(Thread.currentThread().getName() + " send
 						// msg bucket: " + bucket
 						// + " ,total msgs num " + localTotalNum);
