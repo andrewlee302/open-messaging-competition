@@ -10,7 +10,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -19,8 +18,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
-
-import javax.swing.ButtonGroup;
 
 public class OutputManager {
 	private static Logger logger = Logger.getGlobal();
@@ -76,11 +73,12 @@ public class OutputManager {
 	private void printDebugInfo() {
 		logger.info(allMetaInfo.toString());
 		logger.info(String.format("occurContentNotEnough = %d, occurMetaNotEnough = %d",
-				WriteSegmentQueue.occurContentNotEnough.get(), WriteSegmentQueue.occurMetaNotEnough.get()));
+				BucketWriteBox.occurContentNotEnough.get(), BucketWriteBox.occurMetaNotEnough.get()));
 
 	}
 
-	public void writeSegment(WriteSegmentQueue callbackQueue, String bucket, WritableSegment seg, int index) {
+	public void writeSegment(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
+			int index) {
 		WriteRequest wr = new WriteRequest(callbackQueue, bucket, seg, index);
 		try {
 			writeReqQueue.put(wr);
@@ -474,7 +472,7 @@ class NullWriteRequest extends WriteRequest {
 }
 
 class WriteRequest implements Comparable<WriteRequest> {
-	WriteSegmentQueue callbackQueue;
+	BlockingQueue<WritableSegment> callbackQueue;
 	String bucket;
 	WritableSegment seg;
 	int index;
@@ -483,7 +481,7 @@ class WriteRequest implements Comparable<WriteRequest> {
 
 	}
 
-	public WriteRequest(WriteSegmentQueue callbackQueue, String bucket, WritableSegment seg, int index) {
+	public WriteRequest(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg, int index) {
 		super();
 		this.callbackQueue = callbackQueue;
 		this.bucket = bucket;

@@ -5,15 +5,18 @@ import java.io.Serializable;
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
-import io.openmessaging.MessageHeader;
 
 public class DefaultBytesMessage implements BytesMessage, Serializable {
 
 	private static final long serialVersionUID = 1955733544808061966L;
 
+	// private KeyValue headers = new DefaultHeaderKeyValue();
 	private KeyValue headers = new DefaultKeyValue();
 	private KeyValue properties;
 	private byte[] body;
+
+	transient int numHeaders = 0;
+	transient int numProps = 0;
 
 	public DefaultBytesMessage(byte[] body) {
 		this.body = body;
@@ -42,24 +45,28 @@ public class DefaultBytesMessage implements BytesMessage, Serializable {
 
 	@Override
 	public Message putHeaders(String key, int value) {
+		numHeaders++;
 		headers.put(key, value);
 		return this;
 	}
 
 	@Override
 	public Message putHeaders(String key, long value) {
+		numHeaders++;
 		headers.put(key, value);
 		return this;
 	}
 
 	@Override
 	public Message putHeaders(String key, double value) {
+		numHeaders++;
 		headers.put(key, value);
 		return this;
 	}
 
 	@Override
 	public Message putHeaders(String key, String value) {
+		numHeaders++;
 		headers.put(key, value);
 		return this;
 	}
@@ -68,6 +75,7 @@ public class DefaultBytesMessage implements BytesMessage, Serializable {
 	public Message putProperties(String key, int value) {
 		if (properties == null)
 			properties = new DefaultKeyValue();
+		numProps++;
 		properties.put(key, value);
 		return this;
 	}
@@ -76,6 +84,7 @@ public class DefaultBytesMessage implements BytesMessage, Serializable {
 	public Message putProperties(String key, long value) {
 		if (properties == null)
 			properties = new DefaultKeyValue();
+		numProps++;
 		properties.put(key, value);
 		return this;
 	}
@@ -84,6 +93,7 @@ public class DefaultBytesMessage implements BytesMessage, Serializable {
 	public Message putProperties(String key, double value) {
 		if (properties == null)
 			properties = new DefaultKeyValue();
+		numProps++;
 		properties.put(key, value);
 		return this;
 	}
@@ -92,6 +102,7 @@ public class DefaultBytesMessage implements BytesMessage, Serializable {
 	public Message putProperties(String key, String value) {
 		if (properties == null)
 			properties = new DefaultKeyValue();
+		numProps++;
 		properties.put(key, value);
 		return this;
 	}

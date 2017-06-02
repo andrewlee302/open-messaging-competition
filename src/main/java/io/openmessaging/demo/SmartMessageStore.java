@@ -12,6 +12,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import io.openmessaging.Message;
+import io.openmessaging.Producer;
 
 public class SmartMessageStore {
 	private static Logger logger = Logger.getGlobal();
@@ -38,7 +39,7 @@ public class SmartMessageStore {
 	private int numProducers = 0;
 	private int numFlush = 0;
 	private OutputManager outputManager;
-	private ConcurrentHashMap<String, WriteSegmentQueue> writeSegmentQueueMap;
+	private ConcurrentHashMap<String, BucketWriteBox> bucketWriteBoxMap;
 
 	// ------------------------------------------------------------
 	// input
@@ -67,7 +68,7 @@ public class SmartMessageStore {
 
 		if (IS_OUTPUT_OR_INPUT) {
 			// output
-			this.writeSegmentQueueMap = new ConcurrentHashMap<>(Config.NUM_BUCKETS);
+			this.bucketWriteBoxMap = new ConcurrentHashMap<>(Config.NUM_BUCKETS);
 			this.outputManager = OutputManager.getInstance();
 			existQueues = new HashSet<>();
 			existTopics = new HashSet<>();
@@ -106,15 +107,14 @@ public class SmartMessageStore {
 		return INSTANCE;
 	}
 
-	public void putMessage(String bucket, Message message) {
-		WriteSegmentQueue wsq = writeSegmentQueueMap.get(bucket);
-		if (wsq == null) {
-			WriteSegmentQueue newWsq = new WriteSegmentQueue(bucket);
-			wsq = writeSegmentQueueMap.putIfAbsent(bucket, newWsq);
-			wsq = (wsq == null ? newWsq : wsq);
+	public void putMessage(String bucket, Producer p, Message message) {
+		BucketWriteBox box = bucketWriteBoxMap.get(bucket);
+		if (box == null) {
+			BucketWriteBox newWsq = new BucketWriteBox(bucket);
+			box = bucketWriteBoxMap.putIfAbsent(bucket, newWsq);
+			box = (box == null ? newWsq : box);
 		}
-		wsq.cache(message);
-
+		box.cache(p, message);
 	}
 
 	public Message pullMessage(String queue, int bucketSize) {
@@ -170,11 +170,13 @@ public class SmartMessageStore {
 					String.format("Try to flush, but not. numFlush = %d, numProducers = %d", numFlush, numProducers));
 			return;
 		} else {
+			// only the last flush producer will trigger the actual flush
 			logger.info("Start actual flush");
 			long start = System.currentTimeMillis();
-			// only the last flush producer will trigger the actual flush
-			for (WriteSegmentQueue swq : writeSegmentQueueMap.values()) {
-				swq.flush();
+			
+			// flush the cache
+			for (BucketWriteBox bucketBox: bucketWriteBoxMap.values()) {
+				bucketBox.flush();
 			}
 			outputManager.flush(existQueues, existTopics);
 			long end = System.currentTimeMillis();

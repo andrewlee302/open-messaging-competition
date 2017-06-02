@@ -88,7 +88,7 @@ public class StressProducerTester extends StressTester {
 		output_threads = new Thread[numProducers];
 		for (int i = 0; i < numProducers; i++) {
 			final int ii = i;
-			output_threads [i] = new Thread(new Runnable() {
+			output_threads[i] = new Thread(new Runnable() {
 				@Override
 				public void run() {
 					final Producer p = producers[ii];
@@ -164,19 +164,36 @@ public class StressProducerTester extends StressTester {
 		System.out.println("total = " + total + " totalNumSendMsgs = " + totalNumSendMsgs.get());
 	}
 
+	/**
+	 * compose body of AVERAGE_MSG_SIZE
+	 * 
+	 * @param producerId
+	 * @param bucketId
+	 * @param seq
+	 * @return
+	 */
+	static final int AVERAGE_MSG_SIZE = 11;
+	static Random rand = new Random();
+	static byte[] suffix = new byte[AVERAGE_MSG_SIZE - 6];
+
 	public static byte[] pack(int producerId, int bucketId, int seq) {
-		int seqtmp = seq;
-		byte[] body = new byte[6];
+		byte[] body = new byte[AVERAGE_MSG_SIZE];
 		body[0] = (byte) producerId;
 		body[1] = (byte) bucketId;
 		for (int i = 2; i < 6; i++) {
 			body[i] = (byte) seq;
 			seq >>>= 8;
 		}
-		// System.out.println(seqtmp + "\n" + Arrays.toString(body));
+		rand.nextBytes(suffix);
+		System.arraycopy(suffix, 0, body, 6, AVERAGE_MSG_SIZE - 6);
 		return body;
 	}
 
+	/**
+	 * get seq of the message
+	 * @param body
+	 * @return
+	 */
 	public static int unpack(byte[] body) {
 		int seq = 0;
 		for (int i = 5; i > 1; i--) {
