@@ -23,7 +23,7 @@ public class Config {
 	 */
 	public static final int SEGMENT_SIZE = 1 << 16;
 
-	public static final int AVERAGE_MSG_SIZE = 157;
+	public static final int AVERAGE_MSG_SIZE = 185;
 
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 

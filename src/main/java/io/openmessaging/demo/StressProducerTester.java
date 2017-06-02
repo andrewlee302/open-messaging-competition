@@ -66,14 +66,12 @@ public class StressProducerTester extends StressTester {
 
 		topics = new String[numTopics];
 		for (int i = 0; i < numTopics; i++) {
-			topics[i] = "TOPIC" + i;
+			topics[i] = "TOPIC_" + i;
 		}
 
-		consumers = new PullConsumer[numConsumers];
 		queues = new String[numConsumers];
 		for (int i = 0; i < numConsumers; i++) {
-			queues[i] = "QUEUE" + i;
-			consumers[i] = new DefaultPullConsumer(properties);
+			queues[i] = "QUEUE_" + i;
 		}
 
 		numSendMsgs = new AtomicInteger[numBuckets];
@@ -153,15 +151,16 @@ public class StressProducerTester extends StressTester {
 		System.out.println(String.format("Produce cost:%d ms, send:%d q, tps:%d", T1, totalNumSendMsgs.get(),
 				totalNumSendMsgs.get() / T1 * 1000));
 
-		StringBuffer sb = new StringBuffer(400);
-		int total = 0;
-		for (int i = 0; i < numBuckets; i++) {
-			int bucketCap = numSendMsgs[i].get();
-			sb.append(String.format("%4d", bucketCap) + " ");
-			total += bucketCap;
-		}
-		System.out.println(sb.toString());
-		System.out.println("total = " + total + " totalNumSendMsgs = " + totalNumSendMsgs.get());
+		// StringBuffer sb = new StringBuffer(400);
+		// int total = 0;
+		// for (int i = 0; i < numBuckets; i++) {
+		// int bucketCap = numSendMsgs[i].get();
+		// sb.append(String.format("%4d", bucketCap) + " ");
+		// total += bucketCap;
+		// }
+		// System.out.println(sb.toString());
+		// System.out.println("total = " + total + " totalNumSendMsgs = " +
+		// totalNumSendMsgs.get());
 	}
 
 	/**

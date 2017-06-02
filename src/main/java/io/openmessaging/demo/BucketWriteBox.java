@@ -55,26 +55,26 @@ public class BucketWriteBox {
 		try {
 			latch.await();
 			this.currentWriteSegsMap = new HashMap<>();
-			for (Producer p : producers) {
+			for (DefaultProducer p : producers) {
 				WritableSegment currSegment = freeQueue.take();
 				currentWriteSegsMap.put(p, currSegment);
 			}
-			logger.info("All producers registers");
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
 	}
 
 	static CountDownLatch latch = new CountDownLatch(Config.NUM_PRODUCERS);
-	static Set<Producer> producers = new HashSet<>();
+	static Set<DefaultProducer> producers = new HashSet<>();
 
 	/**
 	 * hack
 	 */
-	public static void register(Producer p) {
+	public static void register(DefaultProducer p) {
 		synchronized (producers) {
 			producers.add(p);
 		}
+		logger.info("One producer registers");
 		latch.countDown();
 	}
 

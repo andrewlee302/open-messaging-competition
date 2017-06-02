@@ -41,20 +41,15 @@ public class StressConsumerTester extends StressTester {
 
 		// 这个测试程序的测试逻辑与实际评测相似，但注意这里是单线程的，实际测试时会是多线程的，并且发送完之后会Kill进程，再起消费逻辑
 
-		// producers = new Producer[numProducers];
-		// for (int i = 0; i < numProducers; i++) {
-		// producers[i] = new DefaultProducer(properties);
-		// }
-
 		topics = new String[numTopics];
 		for (int i = 0; i < numTopics; i++) {
-			topics[i] = "TOPIC" + i;
+			topics[i] = "TOPIC_" + i;
 		}
 
 		consumers = new PullConsumer[numConsumers];
 		queues = new String[numConsumers];
 		for (int i = 0; i < numConsumers; i++) {
-			queues[i] = "QUEUE" + i;
+			queues[i] = "QUEUE_" + i;
 			consumers[i] = new DefaultPullConsumer(properties);
 		}
 

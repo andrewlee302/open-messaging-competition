@@ -102,7 +102,7 @@ class WritableSegment extends Segment {
 		msgBuffer.position(quantitySize + Config.MAXIMUM_SIZE_BUCKET_NAME);
 		ib = msgBuffer.asIntBuffer();
 		ib.put(numMsgs);
-		for (int i = 0; i < offsets.length; i++) {
+		for (int i = 0; i < numMsgs; i++) {
 			ib.put(offsets[i]);
 		}
 		// byte[] header = new byte[4];
@@ -215,7 +215,7 @@ class ReadableSegment extends Segment {
 		buffer.position(offsetInSuperSegment + quantitySize + Config.MAXIMUM_SIZE_BUCKET_NAME);
 		ib = buffer.asIntBuffer();
 		numMsgs = ib.get();
-		for (int i = 0; i < offsets.length; i++) {
+		for (int i = 0; i < numMsgs; i++) {
 			offsets[i] = ib.get();
 		}
 	}

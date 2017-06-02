@@ -22,10 +22,9 @@ public class DefaultProducer implements Producer {
 		this.properties = properties;
 		SmartMessageStore.STORE_PATH = this.properties.getString("STORE_PATH");
 		SmartMessageStore.IS_OUTPUT_OR_INPUT = true;
-		messageStore = SmartMessageStore.getInstance();
 		BucketWriteBox.register(this);
 	}
-
+	
 	@Override
 	public BytesMessage createBytesMessageToTopic(String topic, byte[] body) {
 		return messageFactory.createBytesMessageToTopic(topic, body);
@@ -51,8 +50,13 @@ public class DefaultProducer implements Producer {
 		return properties;
 	}
 
+	boolean isFirstSend = true;
 	@Override
 	public void send(Message message) {
+		if (isFirstSend) {
+			messageStore = SmartMessageStore.getInstance();
+			isFirstSend = false;
+		}
 		if (message == null)
 			throw new ClientOMSException("Message should not be null");
 		String topic = message.headers().getString(MessageHeader.TOPIC);
@@ -104,10 +108,15 @@ public class DefaultProducer implements Producer {
 		messageStore.record(messageFactory.getQueues(), messageFactory.getTopics());
 		messageStore.flush();
 
-		logger.info(String.format(
-				"maxMsgSize = %d, minMsgSize = %d, numMsg = %d, averageMsgSize = %d, numMsgLess100 = %d,  numMsgMore200 = %d",
-				messageFactory.maxMsgSize, messageFactory.minMsgSize, messageFactory.numMsg,
-				messageFactory.numMsg == 0 ? 0 : messageFactory.totalMsgSize / messageFactory.numMsg,
-				messageFactory.numMsgLess100, messageFactory.numMsgMore200));
+		// logger.info(String.format(
+		// "maxMsgSize = %d, minMsgSize = %d, numMsg = %d, averageMsgSize = %d,
+		// numMsgLess100 = %d, numMsgMore200 = %d",
+		// messageFactory.maxMsgSize, messageFactory.minMsgSize,
+		// messageFactory.numMsg,
+		// messageFactory.numMsg == 0 ? 0 : messageFactory.totalMsgSize /
+		// messageFactory.numMsg,
+		// messageFactory.numMsgLess100, messageFactory.numMsgMore200));
+		
+		logger.info(String.format("numHeaders = %d, numProps", DefaultBytesMessage.numHeaders, DefaultBytesMessage.numProps));
 	}
 }

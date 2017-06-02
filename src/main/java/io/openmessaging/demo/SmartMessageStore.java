@@ -39,7 +39,7 @@ public class SmartMessageStore {
 	private int numProducers = 0;
 	private int numFlush = 0;
 	private OutputManager outputManager;
-	private ConcurrentHashMap<String, BucketWriteBox> bucketWriteBoxMap;
+	private HashMap<String, BucketWriteBox> bucketWriteBoxMap;
 
 	// ------------------------------------------------------------
 	// input
@@ -66,9 +66,21 @@ public class SmartMessageStore {
 
 	private SmartMessageStore() {
 
+		logger.info("IS_OUTPUT_OR_INPUT : "+ IS_OUTPUT_OR_INPUT);
 		if (IS_OUTPUT_OR_INPUT) {
 			// output
-			this.bucketWriteBoxMap = new ConcurrentHashMap<>(Config.NUM_BUCKETS);
+			this.bucketWriteBoxMap = new HashMap<>(Config.NUM_BUCKETS);
+
+			// TODO hack
+			String bucket = null;
+			for (int i = 0; i < Config.NUM_QUEUES; i++) {
+				bucket = "QUEUE_" + i;
+				bucketWriteBoxMap.put(bucket, new BucketWriteBox(bucket));
+			}
+			for (int i = 0; i < Config.NUM_TOPICS; i++) {
+				bucket = "TOPIC_" + i;
+				bucketWriteBoxMap.put(bucket, new BucketWriteBox(bucket));
+			}
 			this.outputManager = OutputManager.getInstance();
 			existQueues = new HashSet<>();
 			existTopics = new HashSet<>();
@@ -96,25 +108,29 @@ public class SmartMessageStore {
 		}
 	}
 
-	public synchronized static SmartMessageStore getInstance() {
-		if (INSTANCE == null)
-			INSTANCE = new SmartMessageStore();
+	public static SmartMessageStore getInstance() {
+		synchronized (logger) {
+			if (INSTANCE == null)
+				INSTANCE = new SmartMessageStore();
 
-		if (IS_OUTPUT_OR_INPUT)
-			INSTANCE.numProducers++;
-		else
-			INSTANCE.numConsumers++;
+			if (IS_OUTPUT_OR_INPUT)
+				INSTANCE.numProducers++;
+			else
+				INSTANCE.numConsumers++;
+		}
 		return INSTANCE;
 	}
 
 	public void putMessage(String bucket, Producer p, Message message) {
-		BucketWriteBox box = bucketWriteBoxMap.get(bucket);
-		if (box == null) {
-			BucketWriteBox newWsq = new BucketWriteBox(bucket);
-			box = bucketWriteBoxMap.putIfAbsent(bucket, newWsq);
-			box = (box == null ? newWsq : box);
-		}
-		box.cache(p, message);
+		bucketWriteBoxMap.get(bucket).cache(p, message);
+
+		// BucketWriteBox box = bucketWriteBoxMap.get(bucket);
+		// if (box == null) {
+		// BucketWriteBox newWsq = new BucketWriteBox(bucket);
+		// box = bucketWriteBoxMap.putIfAbsent(bucket, newWsq);
+		// box = (box == null ? newWsq : box);
+		// }
+		// box.cache(p, message);
 	}
 
 	public Message pullMessage(String queue, int bucketSize) {
@@ -173,9 +189,9 @@ public class SmartMessageStore {
 			// only the last flush producer will trigger the actual flush
 			logger.info("Start actual flush");
 			long start = System.currentTimeMillis();
-			
+
 			// flush the cache
-			for (BucketWriteBox bucketBox: bucketWriteBoxMap.values()) {
+			for (BucketWriteBox bucketBox : bucketWriteBoxMap.values()) {
 				bucketBox.flush();
 			}
 			outputManager.flush(existQueues, existTopics);
