@@ -24,7 +24,7 @@ public class DefaultProducer implements Producer {
 		SmartMessageStore.IS_OUTPUT_OR_INPUT = true;
 		BucketWriteBox.register(this);
 	}
-	
+
 	@Override
 	public BytesMessage createBytesMessageToTopic(String topic, byte[] body) {
 		return messageFactory.createBytesMessageToTopic(topic, body);
@@ -51,6 +51,7 @@ public class DefaultProducer implements Producer {
 	}
 
 	boolean isFirstSend = true;
+
 	@Override
 	public void send(Message message) {
 		if (isFirstSend) {
@@ -116,7 +117,13 @@ public class DefaultProducer implements Producer {
 		// messageFactory.numMsg == 0 ? 0 : messageFactory.totalMsgSize /
 		// messageFactory.numMsg,
 		// messageFactory.numMsgLess100, messageFactory.numMsgMore200));
-		
-		logger.info(String.format("numHeaders = %d, numProps", DefaultBytesMessage.numHeaders, DefaultBytesMessage.numProps));
+
+		logger.info(String.format(
+				"numHeaderInt = %d, numHeaderString = %d, numHeaderDouble = %d,numHeaderLong = %d, numPropInt = %d, numPropString = %d, numPropDouble = %d, numPropLong = %d",
+				DefaultBytesMessage.numHeaderInt.get(), DefaultBytesMessage.numHeaderString.get(),
+				DefaultBytesMessage.numHeaderDouble.get(), DefaultBytesMessage.numHeaderLong.get(),
+				DefaultBytesMessage.numPropInt.get(), DefaultBytesMessage.numPropString.get(),
+				DefaultBytesMessage.numPropDouble.get(), DefaultBytesMessage.numPropLong.get()));
+
 	}
 }
