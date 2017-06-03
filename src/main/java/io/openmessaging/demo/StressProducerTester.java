@@ -84,8 +84,8 @@ public class StressProducerTester extends StressTester {
 		}
 
 		StringBuffer sb = new StringBuffer(2000);
-		for (int i = 0; i < 2000 / 3; i++) {
-			sb.append("abc");
+		for (int i = 0; i < 2000 / 4; i++) {
+			sb.append("abcd");
 		}
 		CountDownLatch sendDoneSignal = new CountDownLatch(numProducers);
 		output_threads = new Thread[numProducers];
@@ -110,12 +110,17 @@ public class StressProducerTester extends StressTester {
 
 						// auto-incremental field of message
 
+						byte[] body = null;
+						if (rand.nextDouble() < 0.01) {
+							body = pack(ii, buekcetId, seqs[buekcetId]++, sb.toString().getBytes());
+						} else {
+							body = pack(ii, buekcetId, seqs[buekcetId]++);
+							
+						}
 						if (buekcetId < numConsumers) {
 							bucket = queues[buekcetId];
-							byte[] body = pack(ii, buekcetId, seqs[buekcetId]++);
 							msg = p.createBytesMessageToQueue(bucket, body);
 						} else {
-							byte[] body = pack(ii, buekcetId, seqs[buekcetId]++);
 							bucket = topics[buekcetId - numConsumers];
 							msg = p.createBytesMessageToTopic(bucket, body);
 						}
@@ -174,6 +179,14 @@ public class StressProducerTester extends StressTester {
 		// totalNumSendMsgs.get());
 	}
 
+	protected static byte[] pack(int ii, int buekcetId, int i, byte[] bytes) {
+		byte[] b = pack(ii, buekcetId, i);
+		byte[] more = new byte[b.length + bytes.length];
+		System.arraycopy(b, 0, more, 0, b.length);
+		System.arraycopy(bytes, 0, more, b.length, bytes.length);
+		return more;
+	}
+
 	/**
 	 * compose body of AVERAGE_MSG_SIZE
 	 * 
@@ -182,20 +195,20 @@ public class StressProducerTester extends StressTester {
 	 * @param seq
 	 * @return
 	 */
-	static final int AVERAGE_MSG_SIZE = 11;
-	static Random rand = new Random();
-	static byte[] suffix = new byte[AVERAGE_MSG_SIZE - 6];
+	// static final int AVERAGE_MSG_SIZE = 11;
+	// static Random rand = new Random();
+	// static byte[] suffix = new byte[AVERAGE_MSG_SIZE - 6];
 
 	public static byte[] pack(int producerId, int bucketId, int seq) {
-		byte[] body = new byte[AVERAGE_MSG_SIZE];
+		byte[] body = new byte[6];
 		body[0] = (byte) producerId;
 		body[1] = (byte) bucketId;
 		for (int i = 2; i < 6; i++) {
 			body[i] = (byte) seq;
 			seq >>>= 8;
 		}
-		rand.nextBytes(suffix);
-		System.arraycopy(suffix, 0, body, 6, AVERAGE_MSG_SIZE - 6);
+		// rand.nextBytes(suffix);
+		// System.arraycopy(suffix, 0, body, 6, AVERAGE_MSG_SIZE - 6);
 		return body;
 	}
 

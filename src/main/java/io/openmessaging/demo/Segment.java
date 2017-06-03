@@ -58,7 +58,7 @@ class WritableSegment extends Segment {
 		super();
 		this.bucket = bucket;
 		buff = new byte[CAPACITY];
-		msgBuffer = ByteBuffer.wrap(buff, MSG_REGION_OFFSET, MSG_REGION_SIZE);
+		msgBuffer = ByteBuffer.wrap(buff);
 
 	}
 
@@ -67,7 +67,7 @@ class WritableSegment extends Segment {
 			throw new SegmentFullException(true);
 		}
 		DefaultBytesMessage msg = (DefaultBytesMessage) message;
-		int len = MSG_REGION_SIZE - msgWriteCursor;
+		int len = Segment.CAPACITY - msgWriteCursor;
 		int msgSize = msg.serializeToArray(buff, msgWriteCursor, len);
 		if (msgSize != 0) {
 			// logger.info(String.format("succ msgWriteCursor = %d, len = %d",
@@ -118,7 +118,7 @@ class WritableSegment extends Segment {
 	public void clear() {
 		numMsgs = 0;
 		msgWriteCursor = MSG_REGION_OFFSET;
-		msgBuffer = ByteBuffer.wrap(buff, MSG_REGION_OFFSET, MSG_REGION_SIZE);
+		msgBuffer = ByteBuffer.wrap(buff);
 	}
 }
 

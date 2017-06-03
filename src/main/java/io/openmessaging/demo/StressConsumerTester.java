@@ -61,6 +61,10 @@ public class StressConsumerTester extends StressTester {
 			numPullMsgs[i] = new AtomicInteger();
 		}
 
+		StringBuffer sb = new StringBuffer(2000);
+		for (int i = 0; i < 2000 / 4; i++) {
+			sb.append("abcd");
+		}
 		CountDownLatch pullDoneSignal = new CountDownLatch(numConsumers);
 		input_threads = new Thread[numConsumers];
 		for (int i = 0; i < numConsumers; i++) {
@@ -106,6 +110,14 @@ public class StressConsumerTester extends StressTester {
 						int producerId = (int) body[0];
 						int bucketId = (int) body[1];
 						int seq = unpack(body);
+
+						if (body.length == 2000 + 6) {
+							byte[] cc = new byte[2000];
+							System.arraycopy(body, 6, cc, 0, 2000);
+							Assert.assertArrayEquals(cc, sb.toString().getBytes());
+						}
+						
+						Assert.assertTrue(body.length == 6 || body.length == 2000 + 6);
 
 						// 实际测试时，会一一比较各个字段
 						if (topic != null) {
@@ -154,7 +166,7 @@ public class StressConsumerTester extends StressTester {
 		long endConsumer = System.currentTimeMillis();
 		long T2 = endConsumer - startConsumer;
 		System.out.println(String.format("Pull cost:%d ms, pull:%d q, tps:%d ", T2, totalNumPullMsgs.get(),
-				totalNumPullMsgs.get() / T2 *1000));
+				totalNumPullMsgs.get() / T2 * 1000));
 		// System.out.println(String.format("Pull cost:%d ms, pull:%d q, tps:%d
 		// ", T2 + T1, totalNumPullMsgs.get(),
 		// totalNumPullMsgs.get() * 1000 / (T1 + T2)));

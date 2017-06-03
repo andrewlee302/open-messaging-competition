@@ -108,14 +108,19 @@ public class DefaultBytesMessage implements BytesMessage {
 			maxKvNum = numHeaderKvs + numPropKvs;
 		}
 
+		if (len < HEADER_SIZE) {
+			return 0;
+		}
+
 		buff[off] = HEADER;
 
 		// relative to the msg zero position
 		int kvStart = HEADER_SIZE + (numHeaderKvs + numPropKvs) * 4 + 2;
 		int bodyStart = kvStart + kvSize;
 		int msgSize = bodyStart + body.length;
-//		 System.out.printf("kvStart = %d, bodyStart = %d, kvSize = %d, bodyStart = %d, msgSize = %d\n", kvStart,
-//		 bodyStart, kvSize, bodyStart, msgSize);
+		// logger.info(String.format("kvStart = %d, bodyStart = %d, kvSize = %d,
+		// bodySize = %d, msgSize = %d\n", kvStart,
+		// bodyStart, kvSize, body.length, msgSize));
 		if (msgSize > len) {
 			return 0;
 		}
@@ -135,8 +140,6 @@ public class DefaultBytesMessage implements BytesMessage {
 			if (kb != null) {
 				buff[off + kvOff] = kb.byteValue();
 				kvOff += 1;
-				byte[] cc = new byte[bodyStart];
-				System.arraycopy(buff, off, cc, 0, bodyStart);
 			} else {
 				key.getBytes(0, key.length(), buff, off + kvOff);
 				kvOff += key.length();
@@ -146,7 +149,7 @@ public class DefaultBytesMessage implements BytesMessage {
 
 			Byte vb = replaceTable.get(value);
 			if (vb != null) {
-				buff[off + kvOff] = vb;
+				buff[off + kvOff] = vb.byteValue();
 				kvOff += 1;
 			} else {
 				value.getBytes(0, value.length(), buff, off + kvOff);
@@ -186,9 +189,9 @@ public class DefaultBytesMessage implements BytesMessage {
 		}
 
 		System.arraycopy(body, 0, buff, off + bodyStart, body.length);
-//		byte[] cc = new byte[bodyStart];
-//		System.arraycopy(buff, off, cc, 0, bodyStart);
-//		System.out.println(Arrays.toString(cc));
+		// byte[] cc = new byte[bodyStart];
+		// System.arraycopy(buff, off, cc, 0, bodyStart);
+		// System.out.println(Arrays.toString(cc));
 		return msgSize;
 	}
 
@@ -301,8 +304,9 @@ public class DefaultBytesMessage implements BytesMessage {
 
 		int bodyStart = kvOff;
 		int bodyLen = msgSize - bodyStart;
-//		System.out.printf("bodyStart = %d, bodyLen = %d,msgSize = %d, offPos = %d\n", bodyStart, bodyLen, msgSize,
-//				offPos);
+		// logger.info(String.format("bodyStart = %d, bodyLen = %d,msgSize = %d,
+		// offPos = %d\n", bodyStart, bodyLen,
+		// msgSize, offPos));
 		byte[] body = new byte[bodyLen];
 		System.arraycopy(msgBytes, bodyStart, body, 0, bodyLen);
 		DefaultBytesMessage msg = new DefaultBytesMessage(body, false);
@@ -325,14 +329,15 @@ public class DefaultBytesMessage implements BytesMessage {
 
 	public static int _4byte2int(byte[] buff, int offset) {
 		int num = (Byte.toUnsignedInt(buff[offset]) << 24) + (Byte.toUnsignedInt(buff[offset + 1]) << 16)
-				+ (Byte.toUnsignedInt(buff[offset + 2]) << 8) + buff[offset + 3];
+				+ (Byte.toUnsignedInt(buff[offset + 2]) << 8) + Byte.toUnsignedInt(buff[offset + 3]);
 		return num;
 	}
 
 	public static int _4byte2int(ByteBuffer buffer, int offset) {
 		buffer.position(offset);
 		int num = (Byte.toUnsignedInt(buffer.get()) << 24) + (Byte.toUnsignedInt(buffer.get()) << 16)
-				+ (Byte.toUnsignedInt(buffer.get()) << 8) + buffer.get();
+				+ (Byte.toUnsignedInt(buffer.get()) << 8) + Byte.toUnsignedInt(buffer.get());
+
 		return num;
 	}
 
