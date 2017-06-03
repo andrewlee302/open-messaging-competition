@@ -143,8 +143,10 @@ public class OutputManager {
 		long end = System.currentTimeMillis();
 		totalWriteDiskCost += (end - start);
 		totalWriteDiskSize += meta.length;
-		logger.info(String.format("Write meta to %s cost %d ms, size %d bytes, writeRate: %.3f m/s", filename,
-				end - start, meta.length, ((double) totalWriteDiskSize) / (1 << 20) / totalWriteDiskCost * 1000));
+		// logger.info(String.format("Write meta to %s cost %d ms, size %d
+		// bytes, writeRate: %.3f m/s", filename,
+		// end - start, meta.length, ((double) totalWriteDiskSize) / (1 << 20) /
+		// totalWriteDiskCost * 1000));
 	}
 
 	class PersistencyService implements Runnable {
@@ -190,7 +192,8 @@ public class OutputManager {
 				if (reqs.size() == 0)
 					continue;
 				persistSuperSegment(reqs);
-				logger.info(String.format("Catch %d write reqs", reqs.size()));
+				// logger.info(String.format("Catch %d write reqs",
+				// reqs.size()));
 				reqs.clear();
 			}
 		}

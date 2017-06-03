@@ -1,6 +1,7 @@
 package io.openmessaging.demo;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -153,7 +154,7 @@ public class StressConsumerTester extends StressTester {
 		long endConsumer = System.currentTimeMillis();
 		long T2 = endConsumer - startConsumer;
 		System.out.println(String.format("Pull cost:%d ms, pull:%d q, tps:%d ", T2, totalNumPullMsgs.get(),
-				totalNumPullMsgs.get() * 1000 / (T2)));
+				totalNumPullMsgs.get() / T2 *1000));
 		// System.out.println(String.format("Pull cost:%d ms, pull:%d q, tps:%d
 		// ", T2 + T1, totalNumPullMsgs.get(),
 		// totalNumPullMsgs.get() * 1000 / (T1 + T2)));

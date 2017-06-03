@@ -156,8 +156,14 @@ class ReadableSegment extends Segment {
 		// segLength = %d, offsets[readCursor] = %d",
 		// readMsgIndex, offsetInSuperSegment, segLength,
 		// offsets[readMsgIndex]));
-		Message msg = DefaultBytesMessage.deserializeToMsg(buffer, offsetInSuperSegment + offsets[readMsgIndex],
-				segLength - offsets[readMsgIndex]);
+		Message msg;
+		try {
+			msg = DefaultBytesMessage.deserializeToMsg(buffer, offsetInSuperSegment + offsets[readMsgIndex],
+					segLength - offsets[readMsgIndex]);
+		} catch (ByteMessageHeaderException e) {
+			e.printStackTrace();
+			return null;
+		}
 		readMsgIndex++;
 		return msg;
 	}
