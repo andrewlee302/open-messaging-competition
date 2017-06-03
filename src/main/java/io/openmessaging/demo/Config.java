@@ -16,7 +16,17 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int WRITE_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
+	// write
+	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
+	public static final int COMPRESS_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
+	
+	
+	// read
+	/**
+	 * 500 super-segment
+	 */
+	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250; 
+	
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 128;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // ms
 	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;

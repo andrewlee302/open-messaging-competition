@@ -197,7 +197,7 @@ public class DefaultBytesMessage implements BytesMessage {
 
 	}
 
-	public static DefaultBytesMessage deserializeToMsg(MappedByteBuffer buffer, int off, int len)
+	public static DefaultBytesMessage deserializeToMsg(ByteBuffer buffer, int off, int len)
 			throws ByteMessageHeaderException {
 		buffer.position(off);
 		if (buffer.get() != HEADER) {

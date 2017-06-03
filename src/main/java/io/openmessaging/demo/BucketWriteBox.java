@@ -102,7 +102,7 @@ public class BucketWriteBox {
 				occurContentNotEnough.incrementAndGet();
 
 			// send segment to i/o manager
-			outputManager.writeSegment(this.freeQueue, bucket, currSegment, msgIndex);
+			outputManager.sendToCompressReqQueue(this.freeQueue, bucket, currSegment, msgIndex);
 			try {
 				currSegment = freeQueue.take();
 				currentWriteSegsMap.put(p, currSegment);
@@ -124,7 +124,7 @@ public class BucketWriteBox {
 	public void flush() {
 		// send segment to i/o manager
 		for (WritableSegment currSegment : currentWriteSegsMap.values()) {
-			outputManager.writeSegment(this.freeQueue, bucket, currSegment, msgIndex);
+			outputManager.sendToCompressReqQueue(this.freeQueue, bucket, currSegment, msgIndex);
 		}
 	}
 }

@@ -180,6 +180,7 @@ class SequentialSegs implements Serializable {
 
 class FileSuperSeg implements Serializable {
 	private static final long serialVersionUID = -5590252735101016136L;
+	long compressedSize;
 	int numSegsInSuperSeg;
 	ArrayList<SequentialSegs> sequentialSegs;
 
