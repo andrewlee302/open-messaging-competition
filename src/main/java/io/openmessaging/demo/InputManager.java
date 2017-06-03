@@ -87,7 +87,7 @@ public class InputManager {
 		return INSTANCE;
 	}
 
-	public void startPullService(HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap) {
+	public void startPullService(HashMap<String, ArrayList<BlockingQueue<MessagePool>>> bucketBindingMsgQueuesMap) {
 		logger.info("Start " + Config.NUM_ENCODER_MESSAGE_THREAD + " messge encoder services");
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
 			msgEncoderServices[i] = new MessageEncoderService(readBufferQueues[i], bucketBindingMsgQueuesMap);
@@ -176,7 +176,8 @@ public class InputManager {
 				long readFileSize = fileSuperSeg.numSegsInSuperSeg * Segment.CAPACITY;
 				long actualFileSize = new File(filename).length();
 				if (readFileSize > actualFileSize) {
-					logger.warning("read size (" + readFileSize + ") exceeds actual file size (" + actualFileSize + ")");
+					logger.warning(
+							"read size (" + readFileSize + ") exceeds actual file size (" + actualFileSize + ")");
 				}
 				if (readFileSize < actualFileSize) {
 					logger.warning(
@@ -193,16 +194,16 @@ public class InputManager {
 								segCursor * Segment.CAPACITY, sss.numSegs * Segment.CAPACITY);
 						// load the segments into the physical memory
 						// TODO, when to put the buffer, avoiding the page swap.
-						 buffer.load();
+						buffer.load();
 
-//						logger.info(
-//								String.format("file = %d, bucket = %s, numSegs = %d", fileId, sss.bucket, sss.numSegs));
+						// logger.info(
+						// String.format("file = %d, bucket = %s, numSegs = %d",
+						// fileId, sss.bucket, sss.numSegs));
 						BlockingQueue<MappedByteBufferStruct> readBufferQueue = bucketReadBufferQueueMap.get(bucket);
 						if (readBufferQueue == null) {
 							logger.severe("lack corresponding readBufferQueue " + bucket);
 						}
-						readBufferQueue.put(
-								new MappedByteBufferStruct(bucket, buffer, 0, sss.numSegs));
+						readBufferQueue.put(new MappedByteBufferStruct(bucket, buffer, 0, sss.numSegs));
 						segCursor += sss.numSegs;
 
 					} catch (InterruptedException e) {
@@ -243,11 +244,11 @@ public class InputManager {
 	}
 
 	class MessageEncoderService implements Runnable {
-		HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap;
+		HashMap<String, ArrayList<BlockingQueue<MessagePool>>> bucketBindingMsgQueuesMap;
 		BlockingQueue<MappedByteBufferStruct> readBufferQueue;
 
 		public MessageEncoderService(BlockingQueue<MappedByteBufferStruct> readBufferQueue,
-				HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap) {
+				HashMap<String, ArrayList<BlockingQueue<MessagePool>>> bucketBindingMsgQueuesMap) {
 			this.readBufferQueue = readBufferQueue;
 			this.bucketBindingMsgQueuesMap = bucketBindingMsgQueuesMap;
 		}
@@ -288,20 +289,37 @@ public class InputManager {
 					logger.warning("Error " + b + " != " + bucket);
 				}
 				int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
-				ArrayList<BlockingQueue<Message>> queueList = bucketBindingMsgQueuesMap.get(b);
-				Message msg;
+				ArrayList<BlockingQueue<MessagePool>> queueList = bucketBindingMsgQueuesMap.get(b);
+
+				MessagePool pool = null;
+				Message msg = null;
 				try {
+					pool = new MessagePool(Config.MAX_MESSAGE_POOL_CAPACITY);
 					while (true) {
 						msg = readSegment.read();
-						for (BlockingQueue<Message> queue : queueList)
-							queue.put(msg);
+						if (!pool.addMessageIfRemain(msg)) {
+							// pool full
+							for (BlockingQueue<MessagePool> queue : queueList)
+								queue.put(pool);
+							pool = new MessagePool(Config.MAX_MESSAGE_POOL_CAPACITY);
+						}
 					}
 				} catch (SegmentEmptyException e) {
+					// pool not full, not empty
+					if (pool.limit > 0) {
+						for (BlockingQueue<MessagePool> queue : queueList)
+							try {
+								queue.put(pool);
+							} catch (InterruptedException e2) {
+								e2.printStackTrace();
+							}
+					}
+
 					// send the nullMessage as a signal
 					if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
-						for (BlockingQueue<Message> queue : queueList)
+						for (BlockingQueue<MessagePool> queue : queueList)
 							try {
-								queue.put(new NullMessage(null));
+								queue.put(MessagePool.nullMessagePool);
 							} catch (InterruptedException e1) {
 								e1.printStackTrace();
 							}
@@ -319,8 +337,8 @@ public class InputManager {
 		 */
 		MappedByteBuffer buffer;
 		/**
-		 * the offset is not the file offset ( as the super-segment)
-		 * is the offset of the new bytebuffer
+		 * the offset is not the file offset ( as the super-segment) is the
+		 * offset of the new bytebuffer
 		 */
 		int offsetInMappedByffer;
 		int segNum;
@@ -461,5 +479,35 @@ public class InputManager {
 			// TODO Auto-generated method stub
 			return 0;
 		}
+	}
+}
+
+class MessagePool {
+	final static MessagePool nullMessagePool = new MessagePool();
+	Message[] msgs;
+	int limit;
+
+	MessagePool(int size) {
+		msgs = new Message[size];
+	}
+
+	/**
+	 * now there is a space
+	 * 
+	 * @param msg
+	 * @return true if now is not full. false if now is full.
+	 */
+	public boolean addMessageIfRemain(Message msg) {
+		if (limit >= msgs.length)
+			return false;
+		msgs[limit++] = msg;
+		if (limit == msgs.length)
+			return false;
+		else
+			return true;
+	}
+
+	MessagePool() {
+
 	}
 }

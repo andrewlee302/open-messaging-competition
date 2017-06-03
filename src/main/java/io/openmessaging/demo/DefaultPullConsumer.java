@@ -8,8 +8,10 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.logging.Logger;
 
 public class DefaultPullConsumer implements PullConsumer {
+	private static Logger logger = Logger.getGlobal();
 	private SmartMessageStore messageStore;
 	private KeyValue properties;
 	private String queue;
@@ -31,13 +33,36 @@ public class DefaultPullConsumer implements PullConsumer {
 		return properties;
 	}
 
+	private MessagePool currPool;
+	private int cursor = 0;
+
 	@Override
-	public synchronized Message poll() {
+	public Message poll() {
 		if (buckets.size() == 0 || queue == null) {
 			return null;
 		}
-		return messageStore.pullMessage(queue, bucketList.size());
+		// only first call
+		if (currPool == null) {
+			currPool = messageStore.getMessagePool(queue, bucketList.size());
+			cursor = 0;
+			if (currPool == null) {
+				System.out.println("------here1");
+				return null;
+			}
+		}
 
+		if (cursor >= currPool.limit) {
+			currPool = messageStore.getMessagePool(queue, bucketList.size());
+			cursor = 0;
+			if (currPool == null) {
+				return null;
+			}
+		}
+		if (currPool == null) {
+			System.out.println("currPool = " + currPool);
+			logger.info(String.format("curosr = %d", cursor));
+		}
+		return currPool.msgs[cursor++];
 	}
 
 	@Override

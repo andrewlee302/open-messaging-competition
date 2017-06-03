@@ -57,12 +57,12 @@ public class SmartMessageStore {
 	/**
 	 * queue_name (one consumer) -> MessageQueue
 	 */
-	private HashMap<String, BlockingQueue<Message>> consumerBindingMsgQueueMap;
+	private HashMap<String, BlockingQueue<MessagePool>> consumerBindingMsgQueueMap;
 
 	/**
 	 * bucket (topic or queue) -> MessageQueue list
 	 */
-	private HashMap<String, ArrayList<BlockingQueue<Message>>> bucketBindingMsgQueuesMap;
+	private HashMap<String, ArrayList<BlockingQueue<MessagePool>>> bucketBindingMsgQueuesMap;
 
 	private SmartMessageStore() {
 
@@ -126,19 +126,47 @@ public class SmartMessageStore {
 		// }
 		// box.cache(p, message);
 	}
+	
+	public MessagePool getMessagePool(String queue, int bucketSize) {
+
+		// if receive #bucketList NullMessage, then can stop
+		MessagePool msg = null;
+		try {
+			BlockingQueue<MessagePool> bq = consumerBindingMsgQueueMap.get(queue);
+			if (bq == null) {
+				return null;
+			}
+			while (true) {
+				MessagePool msgPool = bq.take();
+				if (msgPool== MessagePool.nullMessagePool) {
+					int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
+					consumerNullMsgNumMap.put(queue, numNumMsg);
+					if (numNumMsg == bucketSize) {
+						return null;
+					} else {
+						continue;
+					}
+				} else {
+					return msgPool;
+				}
+			}
+		} catch (InterruptedException e) {
+			return null;
+		}
+	}
 
 	public Message pullMessage(String queue, int bucketSize) {
 
 		// if receive #bucketList NullMessage, then can stop
 		Message msg = null;
 		try {
-			BlockingQueue<Message> bq = consumerBindingMsgQueueMap.get(queue);
+			BlockingQueue<MessagePool> bq = consumerBindingMsgQueueMap.get(queue);
 			if (bq == null) {
 				return null;
 			}
 			while (true) {
-				msg = bq.take();
-				if (msg instanceof NullMessage) {
+				MessagePool msgPool = bq.take();
+				if (msg == MessagePool.nullMessagePool) {
 					int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
 					consumerNullMsgNumMap.put(queue, numNumMsg);
 					if (numNumMsg == bucketSize) {
@@ -217,7 +245,7 @@ public class SmartMessageStore {
 		// the binding queue must be in the library
 		if (existQueues.contains(queueName)) {
 			for (String bucket : bucketList) {
-				ArrayList<BlockingQueue<Message>> bq = bucketBindingMsgQueuesMap.get(bucket);
+				ArrayList<BlockingQueue<MessagePool>> bq = bucketBindingMsgQueuesMap.get(bucket);
 				if (bq == null) {
 					// there dosen't exist this bucket
 					// ignore
