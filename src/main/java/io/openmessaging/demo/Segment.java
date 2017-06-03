@@ -2,15 +2,12 @@ package io.openmessaging.demo;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+
 import java.io.OutputStream;
-import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 import java.nio.MappedByteBuffer;
-import java.util.Arrays;
 import java.util.logging.Logger;
 
 import io.openmessaging.Message;

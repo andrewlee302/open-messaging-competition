@@ -16,14 +16,13 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int WRITE_REQUEST_QUEUE_SIZE = 64;
+	public static final int WRITE_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 128;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // ms
-	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 10;
+	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;
 	
 	
-	public static final int MAX_MESSAGE_POOL_CAPACITY = 64;
-	
+	public static final int MAX_MESSAGE_POOL_CAPACITY = 32;
 
 	/**
 	 *  it directly relates to the messages' lifecycle.
@@ -35,12 +34,11 @@ public class Config {
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
 	public static final int NUM_ENCODER_MESSAGE_THREAD = 32;
-	public static final int READ_BUFFER_QUEUE_SIZE = Integer.MAX_VALUE;;
+	public static final int NUM_READ_DISK_THREAD = 4;
+
+	public static final int READ_BUFFER_QUEUE_SIZE = Integer.MAX_VALUE;
 	public static final int READ_MSG_QUEUE_SIZE = Integer.MAX_VALUE;
 
-	// useless temporarily
-	public static final int SEGMENT_READ_QUEUE_SIZE = 10;
-	
 	// All segments' size: 10 * 1M * 100 = 1G
 	// 40000000 message needs 4000 segment if size of a
 	// segment a message is 1 MByte and 100 bytes,

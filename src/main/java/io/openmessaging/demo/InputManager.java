@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
@@ -32,8 +33,9 @@ public class InputManager {
 
 	private String storePath;
 
-	private DiskFetchService fetchService;
-	private Thread fetchThread;
+	private DiskFetchService[] fetchServices;
+	private Thread[] fetchThreads;
+	private HashMap<String, Integer> bucketRankMap;
 
 	/**
 	 * bucket queues partition, every msgEncoderService hold a part of bucket
@@ -59,8 +61,12 @@ public class InputManager {
 		}
 
 		// start Fetch service and message encoder services
-		this.fetchService = new DiskFetchService();
-		this.fetchThread = new Thread(fetchService);
+		this.fetchServices = new DiskFetchService[Config.NUM_READ_DISK_THREAD];
+		this.fetchThreads = new Thread[Config.NUM_READ_DISK_THREAD];
+		for (int i = 0; i < Config.NUM_READ_DISK_THREAD; i++) {
+			this.fetchServices[i] = new DiskFetchService(i);
+			this.fetchThreads[i] = new Thread(fetchServices[i]);
+		}
 
 		readBufferQueues = new BlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
@@ -68,16 +74,20 @@ public class InputManager {
 		}
 
 		// uniform distribution
+		bucketRankMap = new HashMap<>(Config.NUM_BUCKETS);
 		bucketReadBufferQueueMap = new HashMap<>(Config.NUM_BUCKETS);
 		int tempCnt = 0;
 		for (String bucket : Config.HACK_BUCKETS) {
 			bucketReadBufferQueueMap.put(bucket, readBufferQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
+			bucketRankMap.put(bucket, tempCnt++ % Config.NUM_READ_DISK_THREAD);
 		}
 
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
 		msgEncoderThreads = new Thread[Config.NUM_ENCODER_MESSAGE_THREAD];
 
-		this.fetchThread.start();
+		for (int i = 0; i < Config.NUM_READ_DISK_THREAD; i++) {
+			this.fetchThreads[i].start();
+		}
 
 	}
 
@@ -153,11 +163,15 @@ public class InputManager {
 		return allMetaInfo;
 	}
 
+	static CountDownLatch diskFetchlatch = new CountDownLatch(Config.NUM_READ_DISK_THREAD);
+
 	class DiskFetchService implements Runnable {
 
-		long totalReadDiskCost = 0; // ms
-		long totalReadDiskSize = 0; // bytes
-		int numReadSegs = 0;
+		int rank;
+
+		DiskFetchService(int rank) {
+			this.rank = rank;
+		}
 
 		@Override
 		public void run() {
@@ -168,12 +182,12 @@ public class InputManager {
 				Path p = Paths.get(storePath, fileId + ".data");
 				String filename = p.toString();
 
-				numReadSegs += fileSuperSeg.numSegsInSuperSeg;
+				int numSegsInSuperSeg = fileSuperSeg.numSegsInSuperSeg;
 
 				/**
 				 * readFileSize isn't same with file size necessarily.
 				 */
-				long readFileSize = fileSuperSeg.numSegsInSuperSeg * Segment.CAPACITY;
+				long readFileSize = numSegsInSuperSeg * Segment.CAPACITY;
 				long actualFileSize = new File(filename).length();
 				if (readFileSize > actualFileSize) {
 					logger.warning(
@@ -187,6 +201,10 @@ public class InputManager {
 				int segCursor = 0;
 				for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
 					String bucket = sss.bucket;
+					if (bucketRankMap.get(bucket) != rank) {
+						continue;
+					}
+					// only the same thread process the same segments
 					RandomAccessFile memoryMappedFile = null;
 					try {
 						memoryMappedFile = new RandomAccessFile(filename, "r");
@@ -219,25 +237,29 @@ public class InputManager {
 					}
 				}
 
-				numFetchSegs.addAndGet(numReadSegs);
+				numFetchSegs.addAndGet(numSegsInSuperSeg);
 				numFetchSuperSegs.incrementAndGet();
 
 				long end = System.currentTimeMillis();
 
-				totalReadDiskCost += (end - start);
-				totalReadDiskSize += readFileSize;
-
-				logger.info(String.format(
-						"(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms, size %d bytes, readRate: %.3f m/s",
-						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, readFileSize,
-						((double) totalReadDiskSize) / (1 << 20) / totalReadDiskCost * 1000));
+				logger.info(String.format("(%dth superseg, %dth seg) Read super-segment data from %s cost %d ms",
+						numFetchSuperSegs.get(), numFetchSegs.get(), filename, end - start, readFileSize));
 			}
-			logger.info("Read all the files, emit finish signal");
-			for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
-				try {
-					readBufferQueues[i].put(new NullMappedByteBufferStruct());
-				} catch (InterruptedException e) {
-					e.printStackTrace();
+			diskFetchlatch.countDown();
+			try {
+				diskFetchlatch.await();
+			} catch (InterruptedException e1) {
+				e1.printStackTrace();
+			}
+
+			if (rank == 0) {
+				logger.info("Read all the files, emit finish signal");
+				for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+					try {
+						readBufferQueues[i].put(new NullMappedByteBufferStruct());
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
 				}
 			}
 		}
