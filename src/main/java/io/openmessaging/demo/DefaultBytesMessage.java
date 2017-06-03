@@ -1,5 +1,6 @@
 package io.openmessaging.demo;
 
+import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.util.Map.Entry;
 import java.util.logging.Logger;
@@ -79,46 +80,43 @@ public class DefaultBytesMessage implements BytesMessage {
 		if (msgSize > len) {
 			return 0;
 		}
-		byte[] temp = new byte[kvStart + kvSize];
-		// big-endian
-		temp[0] = (byte) (msgSize >> 24);
-		temp[1] = (byte) (msgSize >> 16);
-		temp[2] = (byte) (msgSize >> 8);
-		temp[3] = (byte) msgSize;
-
-		temp[4] = (byte) numHeaderKvs;
-		temp[5] = (byte) numPropKvs;
+		_int24byte(msgSize, buff, off);
+		buff[off + 4] = (byte) numHeaderKvs;
+		buff[off + 5] = (byte) numPropKvs;
 
 		int kvOff = kvStart;
 		int offPos = HEADER_SIZE;
-		temp[offPos++] = (byte) kvOff;
+		_int22byte(kvOff, buff, offPos);
+		offPos += 2;
 		for (Entry<String, Object> entry : headers.kvs.entrySet()) {
 			String key = entry.getKey();
 			String value = (String) entry.getValue();
-			key.getBytes(0, key.length(), temp, kvOff);
+			key.getBytes(0, key.length(), buff, kvOff);
 			kvOff += key.length();
-			temp[offPos++] = (byte) kvOff;
-			value.getBytes(0, value.length(), temp, kvOff);
+			_int22byte(kvOff, buff, offPos);
+			offPos += 2;
+			value.getBytes(0, value.length(), buff, kvOff);
 			kvOff += value.length();
-			temp[offPos++] = (byte) kvOff;
+			_int22byte(kvOff, buff, offPos);
+			offPos += 2;
 		}
 
 		if (properties != null) {
 			for (Entry<String, Object> entry : properties.kvs.entrySet()) {
 				String key = entry.getKey();
 				String value = (String) entry.getValue();
-				key.getBytes(0, key.length(), temp, kvOff);
+				key.getBytes(0, key.length(), buff, kvOff);
 				kvOff += key.length();
-				temp[offPos++] = (byte) kvOff;
-				value.getBytes(0, value.length(), temp, kvOff);
+				_int22byte(kvOff, buff, offPos);
+				offPos += 2;
+				value.getBytes(0, value.length(), buff, kvOff);
 				kvOff += value.length();
-				temp[offPos++] = (byte) kvOff;
+				_int22byte(kvOff, buff, offPos);
+				offPos += 2;
 			}
 		}
 
-		System.arraycopy(temp, 0, buff, off, bodyStart);
 		System.arraycopy(body, 0, buff, off + bodyStart, body.length);
-
 		return msgSize;
 	}
 
@@ -159,19 +157,22 @@ public class DefaultBytesMessage implements BytesMessage {
 		int numHeaderKvs = msgBytes[4];
 		int numPropKvs = msgBytes[5];
 
-		int offPos = 6;
-		int kvOff = (int) msgBytes[offPos++];
+		int offPos = HEADER_SIZE;
+		int kvOff = _2byte2int(msgBytes, offPos);
+		offPos += 2;
 		int nextKvOff = 0;
 		DefaultKeyValue headers = new DefaultKeyValue();
 		for (int i = 0; i < numHeaderKvs; i++) {
-			nextKvOff = msgBytes[offPos++];
-			// System.out.println(kvOff + ", " + nextKvOff);
+			nextKvOff = _2byte2int(msgBytes, offPos);
+			offPos += 2;
 			String key = new String(msgBytes, kvOff, nextKvOff - kvOff);
 			kvOff = nextKvOff;
-			nextKvOff = msgBytes[offPos++];
-			// System.out.println(kvOff + ", " + nextKvOff);
+			nextKvOff = _2byte2int(msgBytes, offPos);
+			offPos += 2;
 			String value = new String(msgBytes, kvOff, nextKvOff - kvOff);
 			kvOff = nextKvOff;
+			nextKvOff = _2byte2int(msgBytes, offPos);
+			offPos += 2;
 			headers.put(key, value);
 		}
 
@@ -179,10 +180,12 @@ public class DefaultBytesMessage implements BytesMessage {
 		if (numPropKvs != 0) {
 			props = new DefaultKeyValue();
 			for (int i = 0; i < numHeaderKvs; i++) {
-				nextKvOff = msgBytes[offPos++];
+				nextKvOff = _2byte2int(msgBytes, offPos);
+				offPos += 2;
 				String key = new String(msgBytes, kvOff, nextKvOff - kvOff);
 				kvOff = nextKvOff;
-				nextKvOff = msgBytes[offPos++];
+				nextKvOff = _2byte2int(msgBytes, offPos);
+				offPos += 2;
 				String value = new String(msgBytes, kvOff, nextKvOff - kvOff);
 				kvOff = nextKvOff;
 				props.put(key, value);
@@ -199,8 +202,40 @@ public class DefaultBytesMessage implements BytesMessage {
 		DefaultBytesMessage msg = new DefaultBytesMessage(body, false);
 		msg.headers = headers;
 		msg.properties = props;
-
 		return msg;
+	}
+
+	public static int _2byte2int(byte[] buff, int offset) {
+		// big-endian
+		int num = (Byte.toUnsignedInt(buff[offset]) << 8) + (Byte.toUnsignedInt(buff[offset + 1]));
+		return num;
+	}
+
+	public static void _int22byte(int num, byte[] buff, int offset) {
+		// big-endian
+		buff[offset] = (byte) (num >> 8);
+		buff[offset + 1] = (byte) num;
+	}
+
+	public static int _4byte2int(byte[] buff, int offset) {
+		int num = (Byte.toUnsignedInt(buff[offset]) << 24) + (Byte.toUnsignedInt(buff[offset + 1]) << 16)
+				+ (Byte.toUnsignedInt(buff[offset + 2]) << 8) + buff[offset + 3];
+		return num;
+	}
+
+	public static int _4byte2int(ByteBuffer buffer, int offset) {
+		buffer.position(offset);
+		int num = (Byte.toUnsignedInt(buffer.get()) << 24) + (Byte.toUnsignedInt(buffer.get()) << 16)
+				+ (Byte.toUnsignedInt(buffer.get()) << 8) + buffer.get();
+		return num;
+	}
+
+	public static void _int24byte(int num, byte[] buff, int offset) {
+		// big-endian
+		buff[offset] = (byte) (num >> 24);
+		buff[offset + 1] = (byte) (num >> 16);
+		buff[offset + 2] = (byte) (num >> 8);
+		buff[offset + 3] = (byte) num;
 	}
 
 	public static void main(String[] args) {

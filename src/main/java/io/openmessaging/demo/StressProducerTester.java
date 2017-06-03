@@ -83,6 +83,10 @@ public class StressProducerTester extends StressTester {
 
 		}
 
+		StringBuffer sb = new StringBuffer(2000);
+		for (int i = 0; i < 2000 / 3; i++) {
+			sb.append("abc");
+		}
 		CountDownLatch sendDoneSignal = new CountDownLatch(numProducers);
 		output_threads = new Thread[numProducers];
 		for (int i = 0; i < numProducers; i++) {
@@ -111,13 +115,16 @@ public class StressProducerTester extends StressTester {
 							byte[] body = pack(ii, buekcetId, seqs[buekcetId]++);
 							msg = p.createBytesMessageToQueue(bucket, body);
 						} else {
-							bucket = topics[buekcetId - numConsumers];
 							byte[] body = pack(ii, buekcetId, seqs[buekcetId]++);
+							bucket = topics[buekcetId - numConsumers];
 							msg = p.createBytesMessageToTopic(bucket, body);
 						}
 						msg.putHeaders(MessageHeader.MESSAGE_ID, "3mqr0g7j4seej");
 						msg.putProperties("PRO_OFFSET", "PRODUCER6_39855");
 						msg.putProperties("jjglulc", "yyv090r");
+						if (rand.nextDouble() < 0.1) {
+							msg.putProperties("fdjfldjf", sb.toString());
+						}
 						// logger.info(Thread.currentThread().getName() + " send
 						// msg bucket: " + bucket
 						// + " ,total msgs num " + localTotalNum);
@@ -194,6 +201,7 @@ public class StressProducerTester extends StressTester {
 
 	/**
 	 * get seq of the message
+	 * 
 	 * @param body
 	 * @return
 	 */
