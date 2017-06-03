@@ -5,6 +5,7 @@ import java.nio.MappedByteBuffer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 import io.openmessaging.BytesMessage;
@@ -20,22 +21,8 @@ public class DefaultBytesMessage implements BytesMessage {
 	private DefaultKeyValue headers;
 	private DefaultKeyValue properties;
 	private byte[] body;
-
-	// transient static AtomicInteger numHeaderInt = new AtomicInteger();
-	// transient static AtomicInteger numHeaderString = new AtomicInteger();
-	// transient static AtomicInteger numHeaderDouble = new AtomicInteger();
-	// transient static AtomicInteger numHeaderLong = new AtomicInteger();
-	// transient static AtomicInteger numPropInt = new AtomicInteger();
-	// transient static AtomicInteger numPropString = new AtomicInteger();
-	// transient static AtomicInteger numPropDouble = new AtomicInteger();
-	// transient static AtomicInteger numPropLong = new AtomicInteger();
-
-	static transient int minKeySize = Integer.MAX_VALUE;
-	static transient int minValueSize = Integer.MAX_VALUE;
-	static transient int maxKeySize = 0;
-	static transient int maxValueSize = 0;
-	static transient int maxKvSize = 0;
-	static transient int maxKvNum = 0;
+	
+	static AtomicLong totalMsgSize = new AtomicLong();
 
 	public DefaultBytesMessage(byte[] body) {
 		this.body = body;
@@ -101,13 +88,6 @@ public class DefaultBytesMessage implements BytesMessage {
 	 * @return msg size. if 0, failed.
 	 */
 	public int serializeToArray(byte[] buff, int off, int len) {
-		if (kvSize > maxKvSize) {
-			maxKvSize = kvSize;
-		}
-		if (numHeaderKvs + numPropKvs > maxKvNum) {
-			maxKvNum = numHeaderKvs + numPropKvs;
-		}
-
 		if (len < HEADER_SIZE) {
 			return 0;
 		}
@@ -192,6 +172,8 @@ public class DefaultBytesMessage implements BytesMessage {
 		// byte[] cc = new byte[bodyStart];
 		// System.arraycopy(buff, off, cc, 0, bodyStart);
 		// System.out.println(Arrays.toString(cc));
+		
+		totalMsgSize.addAndGet(msgSize);
 		return msgSize;
 	}
 
@@ -426,15 +408,7 @@ public class DefaultBytesMessage implements BytesMessage {
 	@Override
 	public Message putHeaders(String key, String value) {
 		numHeaderKvs++;
-		if (key.length() > maxKeySize)
-			maxKeySize = key.length();
-		if (value.length() > maxValueSize)
-			maxValueSize = value.length();
-		if (key.length() < minKeySize)
-			minKeySize = key.length();
-		if (value.length() < minValueSize)
-			minValueSize = value.length();
-
+		
 		if (replaceTable.containsKey(key)) {
 			kvSize++;
 		} else {
@@ -479,15 +453,6 @@ public class DefaultBytesMessage implements BytesMessage {
 		if (properties == null)
 			properties = new DefaultKeyValue();
 
-		if (key.length() > maxKeySize)
-			maxKeySize = key.length();
-		if (value.length() > maxValueSize)
-			maxValueSize = value.length();
-		if (key.length() < minKeySize)
-			minKeySize = key.length();
-		if (value.length() < minValueSize)
-			minValueSize = value.length();
-
 		if (replaceTable.containsKey(key)) {
 			kvSize++;
 		} else {
@@ -501,25 +466,6 @@ public class DefaultBytesMessage implements BytesMessage {
 		properties.put(key, value);
 		return this;
 	}
-
-	// TODO delete
-	// transient String bucket;
-	// transient int producerId, buekcetId, seq;
-	// public void extract() {
-	// String topic = headers().getString(MessageHeader.TOPIC);
-	// String queue = headers().getString(MessageHeader.QUEUE);
-	// byte[] body = getBody();
-	// producerId = (int) body[0];
-	// buekcetId = (int) body[1];
-	// seq = StressProducerTester.unpack(body);
-	//
-	// // 实际测试时，会一一比较各个字段
-	// if (topic != null) {
-	// bucket = topic;
-	// } else {
-	// bucket = queue;
-	// }
-	// }
 }
 
 class ByteMessageHeaderException extends Exception {

@@ -193,7 +193,7 @@ public class InputManager {
 								segCursor * Segment.CAPACITY, sss.numSegs * Segment.CAPACITY);
 						// load the segments into the physical memory
 						// TODO, when to put the buffer, avoiding the page swap.
-						buffer.load();
+						 buffer.load();
 
 //						logger.info(
 //								String.format("file = %d, bucket = %s, numSegs = %d", fileId, sss.bucket, sss.numSegs));

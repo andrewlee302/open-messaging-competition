@@ -127,7 +127,7 @@ public class StressProducerTester extends StressTester {
 						msg.putHeaders(MessageHeader.MESSAGE_ID, "3mqr0g7j4seej");
 						msg.putProperties("PRO_OFFSET", "PRODUCER6_39855");
 						msg.putProperties("jjglulc", "yyv090r");
-						if (rand.nextDouble() < 0.1) {
+						if (rand.nextDouble() < 0.01) {
 							msg.putProperties("fdjfldjf", sb.toString());
 						}
 						// logger.info(Thread.currentThread().getName() + " send
