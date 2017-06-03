@@ -184,24 +184,27 @@ public class InputManager {
 
 				int numSegsInSuperSeg = fileSuperSeg.numSegsInSuperSeg;
 
-				/**
-				 * readFileSize isn't same with file size necessarily.
-				 */
 				long readFileSize = numSegsInSuperSeg * Segment.CAPACITY;
-				long actualFileSize = new File(filename).length();
-				if (readFileSize > actualFileSize) {
-					logger.warning(
-							"read size (" + readFileSize + ") exceeds actual file size (" + actualFileSize + ")");
-				}
-				if (readFileSize < actualFileSize) {
-					logger.warning(
-							"read size (" + readFileSize + ") is less than actual file size (" + actualFileSize + ")");
-				}
+				// /**
+				// * readFileSize isn't same with file size necessarily.
+				// */
+				// long actualFileSize = new File(filename).length();
+				// if (readFileSize > actualFileSize) {
+				// logger.warning(
+				// "read size (" + readFileSize + ") exceeds actual file size ("
+				// + actualFileSize + ")");
+				// }
+				// if (readFileSize < actualFileSize) {
+				// logger.warning(
+				// "read size (" + readFileSize + ") is less than actual file
+				// size (" + actualFileSize + ")");
+				// }
 
 				int segCursor = 0;
 				for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
 					String bucket = sss.bucket;
 					if (bucketRankMap.get(bucket) != rank) {
+						segCursor += sss.numSegs;
 						continue;
 					}
 					// only the same thread process the same segments
