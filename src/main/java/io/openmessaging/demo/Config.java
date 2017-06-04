@@ -38,7 +38,7 @@ public class Config {
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 100; // ms
 
-	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 100;
+	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;
 
 
 	/**
