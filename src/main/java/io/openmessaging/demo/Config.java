@@ -15,10 +15,10 @@ public class Config {
 	public static final int NUM_TOPICS = 90;
 	public static final int NUM_BUCKETS = NUM_QUEUES + NUM_TOPICS;
 
+	public static final int AVERAGE_MSG_SIZE = 100;
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-
 	public static final int PARTITION_NUM = 10;
 
 	// write
@@ -26,35 +26,35 @@ public class Config {
 	public static final int COMPRESS_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
 
 	// read
-	/**
-	 * 500 super-segment
-	 */
+	// 1. !!! will affect page cache in OS
+	// totally 512M
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 128; 
+	// 2
+	public static final int READ_BUFFER_QUEUE_SIZE = 50;
+	// 3. 500 super segments
 	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
 
-	// !!! will affect page cache in OS
-	public static final int DECOMPRESS_BYTE_POOL_SIZE = 64; // totally 512M
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 100; // ms
 
 	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;
 
-	public static final int MAX_MESSAGE_POOL_CAPACITY = 64;
 
 	/**
 	 * it directly relates to the messages' lifecycle.
 	 */
 	public static final int SEGMENT_SIZE = 1 << 16;
 
-	public static final int AVERAGE_MSG_SIZE = 100;
-
-	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
 	public static final int NUM_ENCODER_MESSAGE_THREAD = PARTITION_NUM;
-	// public static final int NUM_READ_DISK_THREAD = 16;
+	public static final int NUM_READ_DISK_THREAD = 16;
 
-	public static final int READ_BUFFER_QUEUE_SIZE = Integer.MAX_VALUE;
-	public static final int READ_MSG_QUEUE_SIZE = Integer.MAX_VALUE;
-
+	/**
+	 * 10(#Consumer) * READ_MSG_QUEUE_SIZE * MAX_MESSAGE_POOL_CAPACITY
+	 * * Message_SIZE(200)
+	 */
+	public static final int MAX_MESSAGE_POOL_CAPACITY = 64;
+	public static final int READ_MSG_QUEUE_SIZE = 200;
 	// All segments' size: 10 * 1M * 100 = 1G
 	// 40000000 message needs 4000 segment if size of a
 	// segment a message is 1 MByte and 100 bytes,

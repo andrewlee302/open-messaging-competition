@@ -73,9 +73,7 @@ public class InputManager {
 
 		readConsecutiveSegsQueues = new LinkedBlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
-//			 readConsecutiveSegsQueues[i] = new
-//			 LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
-			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(25);
+			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
 		}
 
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
@@ -83,9 +81,8 @@ public class InputManager {
 
 		for (int i = 0; i < partitionNum; i++) {
 
-//			 this.decompressReqQueues[i] = new
-//			 LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
-			this.decompressReqQueues[i] = new LinkedBlockingQueue<>(50);
+			 this.decompressReqQueues[i] = new
+			 LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
 
 			this.decompressServices[i] = new DecompressService(i);
 			this.decompressThreads[i] = new Thread(this.decompressServices[i]);
@@ -194,7 +191,7 @@ public class InputManager {
 					memoryMappedFile.close();
 					// load the segments into the physical memory
 					// TODO, when to put the buffer, avoiding the page swap.
-					buffer.load();
+					// buffer.load();
 					decompressReqQueues[rank].put(new DecompressSuperSegReq(rank, fileId, buffer,
 							fileSuperSeg.numSegsInSuperSeg, fileSuperSeg.compressedSize));
 				} catch (FileNotFoundException e) {
@@ -248,6 +245,10 @@ public class InputManager {
 
 		long decompressTotalCost = 0;
 		long decompressTotalSize = 0;
+
+		long decompressReqQueuesWaitTime = 0;
+		int decompressReqQueuesWaitOccur = 0;
+
 		DecompressService(int rank) {
 			this.rank = rank;
 		}
@@ -258,7 +259,11 @@ public class InputManager {
 			while (true) {
 				DecompressSuperSegReq req = null;
 				try {
+					long s = System.currentTimeMillis();
 					req = decompressReqQueues[rank].take();
+					decompressReqQueuesWaitTime += (System.currentTimeMillis() - s);
+					decompressReqQueuesWaitOccur++;
+
 					if (req != DecompressSuperSegReq.NULL) {
 						DecompressedSuperSegment dss = new DecompressedSuperSegment(req.buffer, req.numSegsInSuperSeg,
 								req.compressedSize);
@@ -290,8 +295,8 @@ public class InputManager {
 						}
 
 						long end = System.currentTimeMillis();
-						decompressTotalCost+=(end-start);
-						decompressTotalSize +=(fileSuperSeg.compressedSize);
+						decompressTotalCost += (end - start);
+						decompressTotalSize += (fileSuperSeg.compressedSize);
 						logger.info(String.format("Decompress (%d->%d), cost %d ms", fileSuperSeg.compressedSize,
 								fileSuperSeg.numSegsInSuperSeg * Config.SEGMENT_SIZE, end - start));
 					} else {
@@ -304,8 +309,8 @@ public class InputManager {
 					req = null;
 				}
 			}
-			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes", rank, decompressTotalCost,
-					decompressTotalSize));
+			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes, waitqueue: %d ms, occur: %d", rank,
+					decompressTotalCost, decompressTotalSize, decompressReqQueuesWaitTime, decompressReqQueuesWaitOccur));
 			decompressLatch.countDown();
 			try {
 				decompressLatch.await();
@@ -335,12 +340,18 @@ public class InputManager {
 			this.bucketBindingMsgQueuesMap = bucketBindingMsgQueuesMap;
 		}
 
+		long readConsecutiveSegsQueueWaitTime = 0;
+		int readConsecutiveSegsQueueWaitOccurr = 0;
+
 		@Override
 		public void run() {
 			while (true) {
 				ConsecutiveSegs sc = null;
 				try {
+					long s = System.currentTimeMillis();
 					sc = readConsecutiveSegsQueue.take();
+					readConsecutiveSegsQueueWaitOccurr++;
+					readConsecutiveSegsQueueWaitTime += (System.currentTimeMillis() - s);
 					if (sc == ConsecutiveSegs.NULL) {
 						break;
 					} else {
@@ -350,7 +361,7 @@ public class InputManager {
 					e.printStackTrace();
 				}
 			}
-			logger.info("Encoder service " + Thread.currentThread().toString() + " ended.");
+			logger.info(String.format("Decode service, wait time: %d ms, occurs: %d", readConsecutiveSegsQueueWaitTime, readConsecutiveSegsQueueWaitOccurr));
 		}
 
 		/**
