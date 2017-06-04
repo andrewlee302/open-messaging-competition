@@ -19,7 +19,7 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int PARTITION_NUM = 20;
+	public static final int PARTITION_NUM = 4;
 
 	// write
 	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
@@ -28,7 +28,7 @@ public class Config {
 	// read
 	// 1. !!! will affect page cache in OS
 	// totally 512M
-	public static final int DECOMPRESS_BYTE_POOL_SIZE = 64; 
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 128; 
 	// 2
 	public static final int READ_BUFFER_QUEUE_SIZE = 100;
 
