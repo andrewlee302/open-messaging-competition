@@ -2,13 +2,13 @@ package io.openmessaging.demo;
 
 import java.io.IOException;
 import java.io.InputStream;
-
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
-import java.nio.MappedByteBuffer;
 import java.util.logging.Logger;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 import io.openmessaging.Message;
 
@@ -42,7 +42,12 @@ public abstract class Segment {
 	int[] offsets;
 
 	Segment() {
-		offsets = new int[MAX_NUM_MSG];
+
+	}
+
+	Segment(boolean init) {
+		if (init)
+			offsets = new int[MAX_NUM_MSG];
 	}
 }
 
@@ -52,7 +57,7 @@ class WritableSegment extends Segment {
 	int msgWriteCursor = MSG_REGION_OFFSET;
 
 	WritableSegment(String bucket) {
-		super();
+		super(true);
 		this.bucket = bucket;
 		buff = new byte[CAPACITY];
 		msgBuffer = ByteBuffer.wrap(buff);
@@ -120,6 +125,8 @@ class WritableSegment extends Segment {
 }
 
 class ReadableSegment extends Segment {
+
+	public static final ReadableSegment NULL = new ReadableSegment();
 	/**
 	 * the segment byte offset in the super-segment
 	 */
@@ -129,18 +136,27 @@ class ReadableSegment extends Segment {
 	 * segment byte length in the super-segment
 	 */
 	int segLength;
-	MappedByteBuffer buffer;
+	ByteBuffer buffer;
 	int readMsgIndex = 0; // from 0
 
-	private ReadableSegment(MappedByteBuffer buffer, int offset, int length) {
-		super();
+	private ReadableSegment() {
+
+	}
+
+	private ReadableSegment(ByteBuffer buffer, int offset, int length) {
+		super(true);
 		this.buffer = buffer;
 		this.offsetInSuperSegment = offset;
 		this.segLength = length;
 		disassemble();
 	}
 
-	public static ReadableSegment wrap(MappedByteBuffer buffer, int offset, int length) {
+	public static ReadableSegment wrap(ByteBuffer buffer, int offset, int length) {
+		return new ReadableSegment(buffer, offset, length);
+	}
+
+	public static ReadableSegment wrap(byte[] buff, int offset, int length) {
+		ByteBuffer buffer = ByteBuffer.wrap(buff, offset, length);
 		return new ReadableSegment(buffer, offset, length);
 	}
 
@@ -186,6 +202,12 @@ class ReadableSegment extends Segment {
 			offsets[i] = ib.get();
 		}
 	}
+
+	public void close() {
+		this.buffer = null;
+		this.offsets = null;
+	}
+
 }
 
 class SegmentInputStream extends InputStream {
@@ -198,7 +220,7 @@ class SegmentInputStream extends InputStream {
 
 	@Override
 	public int read() throws IOException {
-		return msgBuffer.get();
+		return (msgBuffer.get() & 0xff);
 	}
 
 	@Override
@@ -230,25 +252,141 @@ class SegmentOutputStream extends OutputStream {
 	}
 }
 
-class MappedByteBufferInputStream extends InputStream {
-	MappedByteBuffer buffer;
+class ByteBufferInputStream extends InputStream {
+	ByteBuffer buffer;
 
-	MappedByteBufferInputStream(MappedByteBuffer buffer) {
+	ByteBufferInputStream(ByteBuffer buffer) {
 		this.buffer = buffer;
 	}
 
-	public MappedByteBuffer getBuffer() {
+	public ByteBuffer getBuffer() {
 		return buffer;
 	}
 
 	@Override
 	public int read() throws IOException {
-		return buffer.get();
+		return (buffer.get() & 0xff);
 	}
 
 	@Override
 	public int read(byte dst[], int off, int len) throws IOException {
+		int remain = buffer.remaining();
+		if (remain <= 0)
+			return -1;
+		if (len > remain) {
+			len = remain;
+		}
 		buffer.get(dst, off, len);
 		return len;
 	}
+}
+
+class CompressedSuperSegment extends SegmentOutputStream {
+	GZIPOutputStream compressOutput;
+
+	int numSeg = 0;
+	int writeSize = 0;
+
+	public CompressedSuperSegment(byte[] buff) {
+		super(buff);
+		try {
+			compressOutput = new GZIPOutputStream(this);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	byte[] b;
+
+	public void append(WritableSegment seg) {
+		try {
+			byte[] a = seg.assemble();
+			compressOutput.write(a);
+			writeSize += a.length;
+			numSeg++;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	static int i = 0;
+
+	/**
+	 * the new copy byte array
+	 * 
+	 * @return
+	 */
+	public byte[] getCompressedData() {
+		try {
+			compressOutput.finish();
+			compressOutput.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		byte[] data = new byte[msgBuffer.position()];
+		msgBuffer.flip();
+		msgBuffer.get(data);
+
+		// ByteArrayInputStream bais = new ByteArrayInputStream(data);
+		// GZIPInputStream decompressInput;
+		// try {
+		// decompressInput = new GZIPInputStream(bais);
+		//
+		// // TODO delete
+		// byte[] origin = new byte[numSeg * Segment.CAPACITY];
+		// try {
+		// int len;
+		// int off = 0;
+		// while ((len = decompressInput.read(origin, off, origin.length - off))
+		// > 0) {
+		// off += len;
+		// }
+		// System.out.printf("secretSize=%d, deCompressSize=%d,
+		// expectedSize=%d\n", data.length, off, writeSize);
+		// } catch (IOException e) {
+		// e.printStackTrace();
+		// }
+		// } catch (IOException e1) {
+		// e1.printStackTrace();
+		// }
+
+		return data;
+	}
+}
+
+class DecompressedSuperSegment extends ByteBufferInputStream {
+	GZIPInputStream decompressInput;
+	int numSegs;
+	int originSuperSegSize;
+	long compressedSize;
+
+	DecompressedSuperSegment(ByteBuffer buffer, int numSegs, long compressedSize) {
+		super(buffer);
+		this.numSegs = numSegs;
+		this.originSuperSegSize = numSegs * Config.SEGMENT_SIZE;
+		this.compressedSize = compressedSize;
+		try {
+			decompressInput = new GZIPInputStream(this);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public byte[] decompress(byte[] data) {
+		try {
+			int len, off = 0;
+			while ((len = decompressInput.read(data, off, originSuperSegSize - off)) > 0) {
+				off += len;
+			}
+			if (off != originSuperSegSize) {
+				System.out.println("Exception server error");
+			}
+			decompressInput.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return data;
+	}
+
 }

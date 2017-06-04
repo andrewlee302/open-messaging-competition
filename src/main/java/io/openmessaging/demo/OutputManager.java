@@ -24,20 +24,36 @@ public class OutputManager {
 	private static OutputManager INSTANCE;
 
 	private MetaInfo allMetaInfo;
-	private BlockingQueue<WriteRequest> writeReqQueue;
-	private PersistencyService persistencyService;
-	private Thread persistencyThread;
+
+	private int partitionNum = Config.PARTITION_NUM;
+
+	private BlockingQueue<CompressRequest>[] compressReqQueues = new BlockingQueue[partitionNum];
+	private BlockingQueue<PersistSuperSegRequest>[] persistReqQueues = new BlockingQueue[partitionNum];
+
+	private CompressService[] compressServices = new CompressService[partitionNum];
+	private Thread[] compressThreads = new Thread[partitionNum];
+
+	private PersistencyService[] persistencyServices = new PersistencyService[partitionNum];
+	private Thread[] persistencyThreads = new Thread[partitionNum];
+
 	private String storePath;
 
 	private OutputManager() {
 		this.storePath = SmartMessageStore.STORE_PATH;
-		this.writeReqQueue = new LinkedBlockingQueue<>(Config.WRITE_REQUEST_QUEUE_SIZE);
+		this.allMetaInfo = new MetaInfo();
+		for (int i = 0; i < partitionNum; i++) {
+			this.compressReqQueues[i] = new LinkedBlockingQueue<>(Config.COMPRESS_REQUEST_QUEUE_SIZE);
+			this.persistReqQueues[i] = new LinkedBlockingQueue<>(Config.PERSIST_REQUEST_QUEUE_SIZE);
 
-		// start Persistency Service
-		this.allMetaInfo = new MetaInfo(Config.NUM_BUCKETS);
-		this.persistencyService = new PersistencyService();
-		this.persistencyThread = new Thread(persistencyService);
-		this.persistencyThread.start();
+			// start compress and persistency service
+			this.compressServices[i] = new CompressService(i);
+			this.compressThreads[i] = new Thread(compressServices[i]);
+			this.compressThreads[i].start();
+
+			this.persistencyServices[i] = new PersistencyService(i);
+			this.persistencyThreads[i] = new Thread(persistencyServices[i]);
+			this.persistencyThreads[i].start();
+		}
 	}
 
 	public static OutputManager getInstance() {
@@ -55,12 +71,17 @@ public class OutputManager {
 	 */
 	public void flush(Set<String> queues, Set<String> topics) {
 		try {
-			writeReqQueue.put(new NullWriteRequest());
+			for (int i = 0; i < partitionNum; i++) {
+				compressReqQueues[i].put(CompressRequest.NULL);
+			}
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
 		try {
-			persistencyThread.join();
+			for (int i = 0; i < partitionNum; i++) {
+				compressThreads[i].join();
+				persistencyThreads[i].join();
+			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -73,21 +94,20 @@ public class OutputManager {
 		logger.info(allMetaInfo.toString());
 		logger.info(String.format("occurContentNotEnough = %d, occurMetaNotEnough = %d",
 				BucketWriteBox.occurContentNotEnough.get(), BucketWriteBox.occurMetaNotEnough.get()));
-
 	}
 
-	public void writeSegment(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
+	public void sendToCompressReqQueue(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
 			int index) {
-		WriteRequest wr = new WriteRequest(callbackQueue, bucket, seg, index);
 		try {
-			writeReqQueue.put(wr);
+			compressReqQueues[Config.BUCKET_RANK_MAP.get(bucket)]
+					.put(new CompressRequest(callbackQueue, bucket, seg, index));
+			if (!bucket.equals(seg.bucket)) {
+				logger.warning("why");
+			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
 	}
-
-	long totalWriteDiskCost = 0; // ms
-	long totalWriteDiskSize = 0; // bytes
 
 	// TODO
 	// optimization: directly copy to mapped memory
@@ -103,16 +123,17 @@ public class OutputManager {
 		allMetaInfo.setTopicsSize(topicsSize);
 		allMetaInfo.setQueues(queues);
 		allMetaInfo.setTopics(topics);
-		allMetaInfo.setNumDataFiles(persistencyService.fileId);
-		// same with numDataFiles
-		allMetaInfo.setNumSuperSegs(persistencyService.numSuperSegs);
-		allMetaInfo.setNumTotalSegs(persistencyService.numTotalSegs);
-		allMetaInfo.setNumMetaRecord(persistencyService.numMetaRecord);
-		allMetaInfo.setFileSuperSegMap(persistencyService.fileSuperSegMap);
-		allMetaInfo.setSequentialOccurs(persistencyService.sequentialOccurs);
+		for (int i = 0; i < partitionNum; i++) {
+			allMetaInfo.setNumDataFiles(i, compressServices[i].fileId);
+			// same with numDataFiles
+			allMetaInfo.setNumSuperSegs(i, compressServices[i].numSuperSegs);
+			allMetaInfo.setNumTotalSegs(i, compressServices[i].numTotalSegs);
+			allMetaInfo.setNumMetaRecord(i, compressServices[i].numMetaRecord);
+			allMetaInfo.setFileSuperSegMap(i, compressServices[i].fileSuperSegMap);
+			allMetaInfo.setSequentialOccurs(i, compressServices[i].sequentialOccurs);
+		}
 
-		long start = System.currentTimeMillis();
-		ByteArrayOutputStream baos = new ByteArrayOutputStream(2 << 20); // 1Mb
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(1 << 22); // 4Mb
 		ObjectOutputStream oos;
 		try {
 			oos = new ObjectOutputStream(baos);
@@ -140,16 +161,12 @@ public class OutputManager {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-		long end = System.currentTimeMillis();
-		totalWriteDiskCost += (end - start);
-		totalWriteDiskSize += meta.length;
-		// logger.info(String.format("Write meta to %s cost %d ms, size %d
-		// bytes, writeRate: %.3f m/s", filename,
-		// end - start, meta.length, ((double) totalWriteDiskSize) / (1 << 20) /
-		// totalWriteDiskCost * 1000));
+
+		logger.info(String.format("Write meta to %s, size %d bytes", filename, meta.length));
 	}
 
-	class PersistencyService implements Runnable {
+	class CompressService implements Runnable {
+		int rank;
 
 		int fileId = 0; // from 0
 		int numTotalSegs = 0;
@@ -157,10 +174,14 @@ public class OutputManager {
 		int numSuperSegs = 0;
 		int sequentialOccurs = 0;
 
+		byte[] compressBuff;
+
 		HashMap<Integer, FileSuperSeg> fileSuperSegMap;
 
-		public PersistencyService() {
+		public CompressService(int rank) {
+			this.rank = rank;
 			this.fileSuperSegMap = new HashMap<>();
+			this.compressBuff = new byte[Config.SEGMENT_SIZE * Config.REQ_BATCH_COUNT_THRESHOLD]; // 8M
 		}
 
 		@Override
@@ -169,19 +190,18 @@ public class OutputManager {
 			final long bathThreasholdTime = Config.REQ_WAIT_TIME_THRESHOLD; // ms
 			boolean isEnd = false;
 			while (!isEnd) {
-				ArrayList<WriteRequest> reqs = new ArrayList<>(reqBatchCountThreshold);
+				ArrayList<CompressRequest> reqs = new ArrayList<>(reqBatchCountThreshold);
 				for (int i = 0; i < reqBatchCountThreshold; i++) {
-					WriteRequest req = null;
+					CompressRequest req = null;
 					try {
-						req = writeReqQueue.poll(bathThreasholdTime, TimeUnit.MILLISECONDS);
+						req = compressReqQueues[rank].poll(bathThreasholdTime, TimeUnit.MILLISECONDS);
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 					if (req == null) {
 						break;
 					} else {
-						if (req instanceof NullWriteRequest) {
-							logger.info("Receive the end signal");
+						if (req == CompressRequest.NULL) {
 							isEnd = true;
 							break;
 						} else {
@@ -191,10 +211,15 @@ public class OutputManager {
 				}
 				if (reqs.size() == 0)
 					continue;
-				persistSuperSegment(reqs);
+				compressSuperSegment(reqs);
 				// logger.info(String.format("Catch %d write reqs",
 				// reqs.size()));
 				reqs.clear();
+			}
+			try {
+				persistReqQueues[rank].put(PersistSuperSegRequest.NULL);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
 			}
 		}
 
@@ -204,41 +229,31 @@ public class OutputManager {
 		 * 
 		 * @param reqs
 		 */
-		private void persistSuperSegment(List<WriteRequest> reqs) {
+		private void compressSuperSegment(List<CompressRequest> reqs) {
 			int reqSize = reqs.size();
 			if (reqSize == 0) {
 				return;
 			}
+			CompressedSuperSegment css = new CompressedSuperSegment(compressBuff);
 			numTotalSegs += reqSize;
-			int fileSize = reqSize * Segment.CAPACITY;
 			long start = System.currentTimeMillis();
-			RandomAccessFile memoryMappedFile = null;
-			MappedByteBuffer buffer = null;
+
 			int superSegFileId = fileId++;
-			Path p = Paths.get(storePath, superSegFileId + ".data");
-			String filename = p.toString();
-			try {
-				memoryMappedFile = new RandomAccessFile(filename, "rw");
-				buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, fileSize);
-				memoryMappedFile.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
 			FileSuperSeg fileSuperSeg = new FileSuperSeg(reqSize);
 			fileSuperSegMap.put(superSegFileId, fileSuperSeg);
 
 			// keep the order of one bucket for combination
 			Collections.sort(reqs);
 
-			WriteRequest preReq = reqs.get(0);
+			CompressRequest preReq = reqs.get(0);
 			String preBucket = preReq.bucket;
 			int preIndex = preReq.index;
-			int offset = 0, numSegs = 0;
+			int offset = 0, numSegsTmp = 0;
 			for (int i = 0; i < reqs.size(); i++) {
-				WriteRequest req = reqs.get(i);
+				CompressRequest req = reqs.get(i);
 				// allMetaInfo.addBucketInfo(req.bucket);
-				byte[] data = req.seg.assemble();
-				buffer.put(data);
+				css.append(req.seg);
+
 				try {
 					req.seg.clear();
 					req.callbackQueue.put(req.seg);
@@ -247,63 +262,144 @@ public class OutputManager {
 				}
 				if (!req.bucket.equals(preBucket)) {
 					sequentialOccurs++;
-					fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegs));
-					BucketMeta meta = allMetaInfo.get(preBucket);
+					fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
+					BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
 					if (meta == null) {
 						meta = new BucketMeta();
-						allMetaInfo.put(preBucket, meta);
+						allMetaInfo.bucketMetaMap.put(preBucket, meta);
 					}
+					meta.addMetaRecord(preIndex, superSegFileId, offset, numSegsTmp);
+					meta.addNumSegs(numSegsTmp);
 					numMetaRecord++;
-					meta.addMetaRecord(preIndex, superSegFileId, offset, numSegs);
-					meta.addNumSegs(numSegs);
 
 					preBucket = req.bucket;
 					preIndex = req.index;
-					// offset = i;
-					numSegs = 1;
+					offset = i;
+					numSegsTmp = 1;
 				} else {
-					numSegs++;
+					numSegsTmp++;
 				}
 			}
 			// last bucket group of segments
 			sequentialOccurs++;
-			fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegs));
+			fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
 
-			BucketMeta meta = allMetaInfo.get(preBucket);
+			BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
 			if (meta == null) {
 				meta = new BucketMeta();
-				allMetaInfo.put(preBucket, meta);
+				allMetaInfo.bucketMetaMap.put(preBucket, meta);
 			}
+			meta.addMetaRecord(preIndex, superSegFileId, offset, numSegsTmp);
+			meta.addNumSegs(numSegsTmp);
 			numMetaRecord++;
-			meta.addMetaRecord(preIndex, superSegFileId, offset, numSegs);
-			meta.addNumSegs(numSegs);
+
+			byte[] compressData = css.getCompressedData();
+			fileSuperSeg.compressedSize = compressData.length;
+			try {
+				persistReqQueues[rank].put(new PersistSuperSegRequest(compressData, superSegFileId, reqSize));
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
 
 			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth) Write data (%d %dth segs) to %s cost %d ms, size %d bytes",
-					++numSuperSegs, reqs.size(), numTotalSegs, filename, end - start, fileSize));
+			logger.info(String.format("(%dth) Compress data (%d->%d) cost %d ms", ++numSuperSegs,
+					reqSize * Config.SEGMENT_SIZE, compressData.length, end - start));
+		}
+	}
+
+	class PersistencyService implements Runnable {
+		int rank;
+
+		int numPersistSuperSeg = 0;
+
+		HashMap<Integer, FileSuperSeg> fileSuperSegMap;
+
+		public PersistencyService(int rank) {
+			this.rank = rank;
+			this.fileSuperSegMap = new HashMap<>();
+		}
+
+		@Override
+		public void run() {
+			while (true) {
+				PersistSuperSegRequest req = null;
+				try {
+					req = persistReqQueues[rank].take();
+					if (req == PersistSuperSegRequest.NULL) {
+						break;
+					} else {
+						persistSuperSegment(req);
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+
+		/**
+		 * One super segment consists more than one groups (with the same
+		 * bucket) of segments. Construction:
+		 * 
+		 * @param reqs
+		 */
+		private void persistSuperSegment(PersistSuperSegRequest req) {
+			int fileSize = req.compressedData.length;
+			long start = System.currentTimeMillis();
+			RandomAccessFile memoryMappedFile = null;
+			MappedByteBuffer buffer = null;
+			int superSegFileId = req.fileId;
+			String filename = Config.getFileName(storePath, rank, superSegFileId);
+			try {
+				memoryMappedFile = new RandomAccessFile(filename, "rw");
+				buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, fileSize);
+				memoryMappedFile.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			buffer.put(req.compressedData);
+
+			numPersistSuperSeg++;
+			long end = System.currentTimeMillis();
+			logger.info(String.format("Persist data (%d) to %s cost %d ms", fileSize, filename, end - start));
 		}
 	}
 }
 
-class NullWriteRequest extends WriteRequest {
+class PersistSuperSegRequest {
 
-	public NullWriteRequest() {
+	public static final PersistSuperSegRequest NULL = new PersistSuperSegRequest();
+	int numSegs;
+	byte[] compressedData;
+	int fileId;
+
+	PersistSuperSegRequest() {
+
+	}
+
+	public PersistSuperSegRequest(byte[] compressedData, int fileId, int numSegs) {
 		super();
+		this.compressedData = compressedData;
+		this.fileId = fileId;
+		this.numSegs = numSegs;
 	}
 
 }
 
-class WriteRequest implements Comparable<WriteRequest> {
+class CompressRequest implements Comparable<CompressRequest> {
+	public final static CompressRequest NULL = new CompressRequest();
+
 	BlockingQueue<WritableSegment> callbackQueue;
 	String bucket;
 	WritableSegment seg;
 	int index;
 
-	WriteRequest() {
+	CompressRequest() {
 
 	}
 
-	public WriteRequest(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg, int index) {
+	public CompressRequest(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
+			int index) {
 		super();
 		this.callbackQueue = callbackQueue;
 		this.bucket = bucket;
@@ -312,12 +408,8 @@ class WriteRequest implements Comparable<WriteRequest> {
 	}
 
 	@Override
-	public int compareTo(WriteRequest o) {
+	public int compareTo(CompressRequest o) {
 		int flag = bucket.compareTo(o.bucket);
 		return flag;
-		// if (flag == 0)
-		// return (index - o.index);
-		// else
-		// return flag;
 	}
 }

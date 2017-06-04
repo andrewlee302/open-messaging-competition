@@ -139,9 +139,9 @@ public class SmartMessageStore {
 			while (true) {
 				MessagePool msgPool = bq.take();
 				if (msgPool== MessagePool.nullMessagePool) {
-					int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
-					consumerNullMsgNumMap.put(queue, numNumMsg);
-					if (numNumMsg == bucketSize) {
+					int numNullMsg = consumerNullMsgNumMap.get(queue) + 1;
+					consumerNullMsgNumMap.put(queue, numNullMsg);
+					if (numNullMsg == bucketSize) {
 						return null;
 					} else {
 						continue;
