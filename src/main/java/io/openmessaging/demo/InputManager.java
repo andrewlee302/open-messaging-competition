@@ -308,7 +308,7 @@ public class InputManager {
 					req = null;
 				}
 			}
-			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes, waitqueue: %d ms, occur: %d",
+			logger.info(String.format("Rank%d decompress cost %d ms, finally size: %d bytes, waitqueue: %d ms, occur: %d",
 					rank, decompressTotalCost, decompressTotalSize, decompressReqQueuesWaitTime,
 					decompressReqQueuesWaitOccur));
 			decompressLatch.countDown();
