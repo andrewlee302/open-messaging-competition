@@ -30,7 +30,7 @@ public class Config {
 	// totally 512M
 	public static final int DECOMPRESS_BYTE_POOL_SIZE = 128; 
 	// 2
-	public static final int READ_BUFFER_QUEUE_SIZE = 50;
+	public static final int READ_BUFFER_QUEUE_SIZE = 100;
 	// 3. 500 super segments
 	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
 
