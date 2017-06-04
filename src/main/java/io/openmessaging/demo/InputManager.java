@@ -11,10 +11,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
@@ -35,20 +35,21 @@ public class InputManager {
 
 	private String storePath;
 
-	private DiskFetchService[] fetchServices;
-	private Thread[] fetchThreads;
-	private HashMap<String, Integer> bucketRankMap;
+	private int partitionNum = Config.PARTITION_NUM;
 
-	private PriorityBlockingQueue<DecompressSuperSegReq> decompressReqQueue;
-	private DecompressService decompressService;
-	private Thread decompressThread;
+	private DiskFetchService[] fetchServices = new DiskFetchService[partitionNum];
+	private Thread[] fetchThreads = new Thread[partitionNum];
+
+	private BlockingQueue<DecompressSuperSegReq>[] decompressReqQueues = new BlockingQueue[partitionNum];
+	private DecompressService[] decompressServices = new DecompressService[partitionNum];
+	private Thread[] decompressThreads = new Thread[partitionNum];
 
 	/**
 	 * bucket queues partition, every msgEncoderService hold a part of bucket
 	 * within a specific readBufferQueue.
 	 */
 	private BlockingQueue<ConsecutiveSegs>[] readConsecutiveSegsQueues;
-	private HashMap<String, BlockingQueue<ConsecutiveSegs>> bucketConsecutiveSegsQueueMap;
+
 	private MessageEncoderService[] msgEncoderServices;
 	private Thread[] msgEncoderThreads;
 
@@ -66,41 +67,28 @@ public class InputManager {
 			processedSegmentNumMap.put(bucket, new AtomicInteger());
 		}
 
-		this.decompressReqQueue = new PriorityBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
-		this.decompressService = new DecompressService();
-		this.decompressThread = new Thread(this.decompressService);
-		this.decompressThread.start();
-
 		// start Fetch service and message encoder services
-		this.fetchServices = new DiskFetchService[Config.NUM_READ_DISK_THREAD];
-		this.fetchThreads = new Thread[Config.NUM_READ_DISK_THREAD];
-		for (int i = 0; i < Config.NUM_READ_DISK_THREAD; i++) {
-			this.fetchServices[i] = new DiskFetchService(i);
-			this.fetchThreads[i] = new Thread(fetchServices[i]);
-		}
 
 		readConsecutiveSegsQueues = new LinkedBlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
 			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
 		}
 
-		// uniform distribution
-		bucketRankMap = new HashMap<>(Config.NUM_BUCKETS);
-		bucketConsecutiveSegsQueueMap = new HashMap<>(Config.NUM_BUCKETS);
-		int tempCnt = 0;
-		for (String bucket : Config.HACK_BUCKETS) {
-			bucketConsecutiveSegsQueueMap.put(bucket,
-					readConsecutiveSegsQueues[tempCnt++ % Config.NUM_ENCODER_MESSAGE_THREAD]);
-			bucketRankMap.put(bucket, tempCnt++ % Config.NUM_READ_DISK_THREAD);
-		}
-
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
 		msgEncoderThreads = new Thread[Config.NUM_ENCODER_MESSAGE_THREAD];
 
-		for (int i = 0; i < Config.NUM_READ_DISK_THREAD; i++) {
+		for (int i = 0; i < partitionNum; i++) {
+
+			this.decompressReqQueues[i] = new LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
+
+			this.decompressServices[i] = new DecompressService(i);
+			this.decompressThreads[i] = new Thread(this.decompressServices[i]);
+			this.decompressThreads[i].start();
+
+			this.fetchServices[i] = new DiskFetchService(i);
+			this.fetchThreads[i] = new Thread(fetchServices[i]);
 			this.fetchThreads[i].start();
 		}
-
 	}
 
 	public static InputManager getInstance() {
@@ -155,12 +143,6 @@ public class InputManager {
 			ois = null;
 		}
 
-		// assert
-		if (allMetaInfo.queuesSize + allMetaInfo.topicsSize != allMetaInfo.size()) {
-			logger.severe(String.format("Inconsistent: queuesSize = %d, topicSize = %d, bucketMetas.size() = %d",
-					allMetaInfo.queuesSize, allMetaInfo.topicsSize, allMetaInfo.size()));
-		}
-
 		try {
 			memoryMappedFile.close();
 		} catch (IOException e) {
@@ -188,12 +170,12 @@ public class InputManager {
 
 		@Override
 		public void run() {
-			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap();
-			for (int fileId = rank; fileId < allMetaInfo.numDataFiles; fileId += Config.NUM_READ_DISK_THREAD) {
+			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap(rank);
+			for (int fileId = 0; fileId < allMetaInfo.numDataFiles[rank]; fileId++) {
 				FileSuperSeg fileSuperSeg = fileSuperSegMap.get(fileId);
 				long start = System.currentTimeMillis();
-				Path p = Paths.get(storePath, fileId + ".data");
-				String filename = p.toString();
+
+				String filename = Config.getFileName(storePath, rank, fileId);
 
 				int numSegsInSuperSeg = fileSuperSeg.numSegsInSuperSeg;
 				// long readFileSize = numSegsInSuperSeg * Segment.CAPACITY;
@@ -209,11 +191,14 @@ public class InputManager {
 					// load the segments into the physical memory
 					// TODO, when to put the buffer, avoiding the page swap.
 					buffer.load();
-					decompressReqQueue.put(new DecompressSuperSegReq(fileId, buffer, fileSuperSeg.numSegsInSuperSeg,
-							fileSuperSeg.compressedSize));
+					decompressReqQueues[rank].put(new DecompressSuperSegReq(rank, fileId, buffer,
+							fileSuperSeg.numSegsInSuperSeg, fileSuperSeg.compressedSize));
 				} catch (FileNotFoundException e) {
 					e.printStackTrace();
 				} catch (IOException e) {
+					e.printStackTrace();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} finally {
 					memoryMappedFile = null;
@@ -234,6 +219,7 @@ public class InputManager {
 				// size (" + actualFileSize + ")");
 				// }
 
+				numFetchSuperSegs.incrementAndGet();
 				numFetchSegs.addAndGet(numSegsInSuperSeg);
 
 				long end = System.currentTimeMillis();
@@ -242,49 +228,62 @@ public class InputManager {
 						numFetchSuperSegs.get(), filename, end - start, fileSuperSeg.compressedSize));
 			}
 
-			diskFetchlatch.countDown();
+			logger.info("Read all the files, emit finish signal");
 			try {
-				diskFetchlatch.await();
-			} catch (InterruptedException e1) {
-				e1.printStackTrace();
-			}
-
-			if (rank == 0) {
-				logger.info("Read all the files, emit finish signal");
-				decompressReqQueue.put(DecompressSuperSegReq.NULL);
+				decompressReqQueues[rank].put(DecompressSuperSegReq.NULL);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
 			}
 		}
 	}
 
+	static CountDownLatch decompressLatch = new CountDownLatch(Config.PARTITION_NUM);
+
 	class DecompressService implements Runnable {
+		int rank;
+
+		DecompressService(int rank) {
+			this.rank = rank;
+		}
+
 		@Override
 		public void run() {
-			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap();
+			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap(rank);
 			while (true) {
 				DecompressSuperSegReq req = null;
 				try {
-					req = decompressReqQueue.take();
+					req = decompressReqQueues[rank].take();
 					if (req != DecompressSuperSegReq.NULL) {
 						DecompressedSuperSegment dss = new DecompressedSuperSegment(req.buffer, req.numSegsInSuperSeg,
 								req.compressedSize);
 
-						byte[] superSegmentBinary = dss.decompress();
-						logger.info("hehe fileid " + req.fileId);
-
 						FileSuperSeg fileSuperSeg = fileSuperSegMap.get(req.fileId);
+
+						ByteArrayUnit unit  = ByteArrayPool.getInstance()
+								.fetchByteArray(fileSuperSeg.sequentialSegs.size());
+						byte[] superSegmentBinary = unit.data;
+
+						dss.decompress(superSegmentBinary);
+						// logger.info("hehe rank" + rank + " , fileid " +
+						// req.fileId);
+
 						int segCursor = 0;
 						for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
-						logger.info("hehe bucket " + sss.bucket);
+							// logger.info("hehe rank" + rank + ", bucket " +
+							// sss.bucket);
 							String bucket = sss.bucket;
 							// TODO multi-service
 							// distinguish the bucket
-							BlockingQueue<ConsecutiveSegs> readConsecutiveSegsQueue = bucketConsecutiveSegsQueueMap
-									.get(bucket);
+							BlockingQueue<ConsecutiveSegs> readConsecutiveSegsQueue = readConsecutiveSegsQueues[Config.BUCKET_RANK_MAP
+									.get(bucket)];
 							if (readConsecutiveSegsQueue == null) {
 								logger.severe("lack corresponding readBufferQueue " + bucket);
 							}
-							readConsecutiveSegsQueue.put(
-									new ConsecutiveSegs(req.numSegsInSuperSeg, bucket, superSegmentBinary, segCursor));
+							// System.out.printf("rank%d, fileId=%d, bucket=%s,
+							// offset=%d, numSegs=%d\n", rank, req.fileId,
+							// bucket, segCursor, sss.numSegs);
+							readConsecutiveSegsQueue.put(new ConsecutiveSegs(rank, req.fileId, bucket,
+									unit, segCursor, sss.numSegs));
 							segCursor += sss.numSegs;
 						}
 					} else {
@@ -292,13 +291,25 @@ public class InputManager {
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
+				} finally {
+					req.buffer = null;
+					req = null;
 				}
 			}
-			for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
-				try {
-					readConsecutiveSegsQueues[i].put(ConsecutiveSegs.NULL);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
+			decompressLatch.countDown();
+			try {
+				decompressLatch.await();
+			} catch (InterruptedException e1) {
+				e1.printStackTrace();
+			}
+			if (rank == 0) {
+				logger.info("All fetch services have been finished");
+				for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+					try {
+						readConsecutiveSegsQueues[i].put(ConsecutiveSegs.NULL);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
 				}
 			}
 		}
@@ -340,14 +351,23 @@ public class InputManager {
 		 * @param segLength
 		 */
 		private void processSequentialSegments(ConsecutiveSegs sc) {
+			int offsetSegUnit = sc.offsetSegUnit;
 			for (int i = 0; i < sc.numSegs; i++) {
-				ReadableSegment readSegment = ReadableSegment.wrap(sc.buff, i * Segment.CAPACITY, Segment.CAPACITY);
-				String b = readSegment.bucket;
-				if (!sc.bucket.equals(b)) {
-					logger.warning("Error " + b + " != " + sc.bucket);
+				// !!sc.buff may be shared by other threads
+				ReadableSegment readSegment = ReadableSegment.wrap(sc.unit.data, (offsetSegUnit + i) * Segment.CAPACITY,
+						Segment.CAPACITY);
+
+				if (!sc.bucket.equals(readSegment.bucket)) {
+					System.out.printf("E rank%d, fileId=%d, bucket=%s(deserBucket=%s), offset=%d, numSegs=%d,\n",
+							sc.rank, sc.fileId, sc.bucket, readSegment.bucket, sc.offsetSegUnit, sc.numSegs);
+				} else {
+					// System.out.printf("C rank%d, fileId=%d,
+					// bucket=%s(deserBucket=%s), offset=%d, numSegs=%d\n",
+					// sc.rank, sc.fileId, sc.bucket, readSegment.bucket,
+					// sc.offsetSegUnit, sc.numSegs);
 				}
-				int processedSegmentNum = processedSegmentNumMap.get(b).incrementAndGet();
-				ArrayList<BlockingQueue<MessagePool>> queueList = bucketBindingMsgQueuesMap.get(b);
+				int processedSegmentNum = processedSegmentNumMap.get(sc.bucket).incrementAndGet();
+				ArrayList<BlockingQueue<MessagePool>> queueList = bucketBindingMsgQueuesMap.get(sc.bucket);
 
 				MessagePool pool = null;
 				Message msg = null;
@@ -374,7 +394,10 @@ public class InputManager {
 					}
 
 					// send the nullMessage as a signal
-					if (processedSegmentNum >= allMetaInfo.get(b).numSegs) {
+					// System.out.println("bucket " + sc.bucket + " process: " +
+					// processedSegmentNum);
+					if (processedSegmentNum >= allMetaInfo.bucketMetaMap.get(sc.bucket).numSegs) {
+						// System.out.println("bucket ended: " + sc.bucket);
 						for (BlockingQueue<MessagePool> queue : queueList)
 							try {
 								queue.put(MessagePool.nullMessagePool);
@@ -384,6 +407,12 @@ public class InputManager {
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
+				} finally {
+					// TODO
+					ByteArrayPool.getInstance().returnByteArray(sc.unit);
+//					sc.unit = null;
+					readSegment.close();
+					readSegment = null;
 				}
 			}
 		}
@@ -399,51 +428,51 @@ public class InputManager {
 class ConsecutiveSegs {
 
 	public final static ConsecutiveSegs NULL = new ConsecutiveSegs();
+	int rank;
+	int fileId;
 	int numSegs;
 	String bucket;
-	byte[] buff;
+	ByteArrayUnit unit;
 	int offsetSegUnit;
 
 	private ConsecutiveSegs() {
 
 	}
 
-	public ConsecutiveSegs(int numSegs, String bucket, byte[] buff, int offsetSegUnit) {
+	public ConsecutiveSegs(int rank, int fileId, String bucket, ByteArrayUnit unit, int offsetSegUnit, int numSegs) {
 		super();
+		this.rank = rank;
+		this.fileId = fileId;
 		this.numSegs = numSegs;
 		this.bucket = bucket;
-		this.buff = buff;
+		this.unit = unit;
 		this.offsetSegUnit = offsetSegUnit;
 	}
 
 }
 
-class DecompressSuperSegReq implements Comparable<DecompressSuperSegReq> {
+class DecompressSuperSegReq {
+	int rank;
 	int fileId;
 	int numSegsInSuperSeg;
 	ByteBuffer buffer;
 	long compressedSize;
 
 	public static final DecompressSuperSegReq NULL = new DecompressSuperSegReq();
-	static {
-		NULL.fileId = Integer.MAX_VALUE;
-	}
 
 	DecompressSuperSegReq() {
 
 	}
 
-	public DecompressSuperSegReq(int fileId, MappedByteBuffer buffer, int numSegsInSuperSeg, long compressedSize) {
+	public DecompressSuperSegReq(int rank, int fileId, MappedByteBuffer buffer, int numSegsInSuperSeg,
+			long compressedSize) {
+		this.rank = rank;
 		this.fileId = fileId;
 		this.buffer = buffer;
 		this.numSegsInSuperSeg = numSegsInSuperSeg;
 		this.compressedSize = compressedSize;
 	}
 
-	@Override
-	public int compareTo(DecompressSuperSegReq o) {
-		return this.fileId - o.fileId;
-	}
 }
 
 class MessagePool {
@@ -474,4 +503,64 @@ class MessagePool {
 	MessagePool() {
 
 	}
+}
+
+class ByteArrayUnit {
+	byte[] data;
+	int id; // from 0 to Config.DECOMPRESS_BYTE_POOL_SIZE-1
+
+	public ByteArrayUnit(int id) {
+		super();
+		this.data = new byte[Config.REQ_BATCH_COUNT_THRESHOLD * Config.SEGMENT_SIZE];
+		this.id = id;
+	}
+
+}
+
+class ByteArrayPool {
+	private ArrayBlockingQueue<ByteArrayUnit> pool;
+	private int[] holdNums;
+
+	private static ByteArrayPool INSTANCE;
+
+	private ByteArrayPool() {
+		pool = new ArrayBlockingQueue<>(Config.DECOMPRESS_BYTE_POOL_SIZE);
+		holdNums = new int[Config.DECOMPRESS_BYTE_POOL_SIZE];
+		for (int i = 0; i < Config.DECOMPRESS_BYTE_POOL_SIZE; i++) {
+			try {
+				pool.put(new ByteArrayUnit(i));
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	public ByteArrayUnit fetchByteArray(int holdNum) {
+		ByteArrayUnit b = null;
+		try {
+			b = pool.take();
+			holdNums[b.id] = holdNum;
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return b;
+	}
+
+	public void returnByteArray(ByteArrayUnit b) {
+		try {
+			if (--holdNums[b.id] == 0)
+				pool.put(b);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public static ByteArrayPool getInstance() {
+		if (INSTANCE == null) {
+			INSTANCE = new ByteArrayPool();
+		}
+		return INSTANCE;
+	}
+
 }

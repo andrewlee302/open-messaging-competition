@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.Set;
 
 //all meta info
-public class MetaInfo extends HashMap<String, BucketMeta> {
+public class MetaInfo implements Serializable {
 	private static final long serialVersionUID = 8853036030285630462L;
 
 	int queuesSize;
@@ -17,17 +17,17 @@ public class MetaInfo extends HashMap<String, BucketMeta> {
 	 * the number of segment groups, each of which consists consecutive segments
 	 * within the same bucket.
 	 */
-	int numMetaRecord;
+	int[] numMetaRecords;
 
 	/**
 	 * consecutive segments occurs
 	 */
-	int sequentialOccurs;
-	int numTotalSegs;
-	int numTotalMsgs;
-	int numDataFiles;
-	int numSuperSegs;
-	HashMap<Integer, FileSuperSeg> fileSuperSegMap;
+	int[] sequentialOccurs;
+	int[] numTotalSegs;
+	int[] numDataFiles;
+	int[] numSuperSegs;
+	HashMap<Integer, FileSuperSeg>[] fileSuperSegMaps;
+	HashMap<String, BucketMeta> bucketMetaMap;
 
 	/**
 	 * the bucket partition values of sequential segments in the data store. we
@@ -37,8 +37,14 @@ public class MetaInfo extends HashMap<String, BucketMeta> {
 	// ArrayList<Byte> bucketParts = new ArrayList<>(90000);
 	transient int cursorOfBucketParts = 0;
 
-	public MetaInfo(int numBuckets) {
-		super(numBuckets);
+	public MetaInfo() {
+		numMetaRecords = new int[Config.PARTITION_NUM];
+		sequentialOccurs = new int[Config.PARTITION_NUM];
+		numTotalSegs = new int[Config.PARTITION_NUM];
+		numDataFiles = new int[Config.PARTITION_NUM];
+		numSuperSegs = new int[Config.PARTITION_NUM];
+		fileSuperSegMaps = new HashMap[Config.PARTITION_NUM];
+		bucketMetaMap = new HashMap<>();
 	}
 
 	@Override
@@ -54,67 +60,63 @@ public class MetaInfo extends HashMap<String, BucketMeta> {
 			sbt.append(t);
 			sbt.append(", ");
 		}
-		return String.format(
-				"queueSize = %d, topicsSize = %d, sequentialOccurs = %d, numTotalSegs = %d, numTotalMsgs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
-				queuesSize, topicsSize, sequentialOccurs, numTotalSegs, numTotalMsgs, numDataFiles, numSuperSegs,
-				sbq.toString(), sbt.toString());
+		StringBuffer sb = new StringBuffer();
+		for (int i = 0; i < Config.PARTITION_NUM; i++) {
+			sb.append(String.format(
+					"queueSize = %d, topicsSize = %d, sequentialOccurs = %d, numTotalSegs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
+					queuesSize, topicsSize, sequentialOccurs[i], numTotalSegs[i], numDataFiles[i], numSuperSegs[i],
+					sbq.toString(), sbt.toString()));
+		}
+		return sb.toString();
 
 	}
 
-	// public void addBucketInfo(String bucket) {
-	// bucketParts.add((byte) bucket.hashCode());
-	// }
-	//
-	// public Byte getNextBucketPart() {
-	// if (cursorOfBucketParts < bucketParts.size()) {
-	// return bucketParts.get(cursorOfBucketParts++);
-	// } else {
-	// return null;
-	// }
-	// }
-	//
-	// public void setBucketParts(ArrayList<Byte> bucketParts) {
-	// this.bucketParts = bucketParts;
-	// }
-
-	public HashMap<Integer, FileSuperSeg> getFileSuperSegMap() {
-		return fileSuperSegMap;
+	public HashMap<Integer, FileSuperSeg> getFileSuperSegMap(int rank) {
+		return fileSuperSegMaps[rank];
 	}
 
-	public void setFileSuperSegMap(HashMap<Integer, FileSuperSeg> fileSuperSegMap) {
-		this.fileSuperSegMap = fileSuperSegMap;
+	public void setFileSuperSegMap(int rank, HashMap<Integer, FileSuperSeg> fileSuperSegMap) {
+		this.fileSuperSegMaps[rank] = fileSuperSegMap;
 	}
 
-	public int getSequentialOccurs() {
-		return sequentialOccurs;
+	public int getSequentialOccurs(int rank) {
+		return sequentialOccurs[rank];
 	}
 
-	public void setSequentialOccurs(int sequentialOccurs) {
-		this.sequentialOccurs = sequentialOccurs;
+	public void setSequentialOccurs(int rank, int sequentialOccurs) {
+		this.sequentialOccurs[rank] = sequentialOccurs;
 	}
 
-	public int getNumTotalSegs() {
-		return numTotalSegs;
+	public int getNumTotalSegs(int rank) {
+		return numTotalSegs[rank];
 	}
 
-	public void setNumTotalSegs(int numTotalSegs) {
-		this.numTotalSegs = numTotalSegs;
+	public void setNumTotalSegs(int rank, int numTotalSegs) {
+		this.numTotalSegs[rank] = numTotalSegs;
 	}
 
-	public Set<String> getQueues() {
-		return queues;
+	public int getNumDataFiles(int rank) {
+		return numDataFiles[rank];
 	}
 
-	public void setQueues(Set<String> queues) {
-		this.queues = queues;
+	public void setNumDataFiles(int rank, int numDataFiles) {
+		this.numDataFiles[rank] = numDataFiles;
 	}
 
-	public Set<String> getTopics() {
-		return topics;
+	public int getNumSuperSegs(int rank) {
+		return numSuperSegs[rank];
 	}
 
-	public void setTopics(Set<String> topics) {
-		this.topics = topics;
+	public void setNumSuperSegs(int rank, int numSuperSegs) {
+		this.numSuperSegs[rank] = numSuperSegs;
+	}
+
+	public int getNumMetaRecord(int rank) {
+		return numMetaRecords[rank];
+	}
+
+	public void setNumMetaRecord(int rank, int numMetaRecord) {
+		this.numMetaRecords[rank] = numMetaRecord;
 	}
 
 	public int getQueuesSize() {
@@ -133,37 +135,22 @@ public class MetaInfo extends HashMap<String, BucketMeta> {
 		this.topicsSize = topicsSize;
 	}
 
-	public int getNumTotalMsgs() {
-		return numTotalMsgs;
+	public Set<String> getQueues() {
+		return queues;
 	}
 
-	public void setNumTotalMsgs(int numTotalMsgs) {
-		this.numTotalMsgs = numTotalMsgs;
+	public void setQueues(Set<String> queues) {
+		this.queues = queues;
 	}
 
-	public int getNumDataFiles() {
-		return numDataFiles;
+	public Set<String> getTopics() {
+		return topics;
 	}
 
-	public void setNumDataFiles(int numDataFiles) {
-		this.numDataFiles = numDataFiles;
+	public void setTopics(Set<String> topics) {
+		this.topics = topics;
 	}
 
-	public int getNumSuperSegs() {
-		return numSuperSegs;
-	}
-
-	public void setNumSuperSegs(int numSuperSegs) {
-		this.numSuperSegs = numSuperSegs;
-	}
-
-	public int getNumMetaRecord() {
-		return numMetaRecord;
-	}
-
-	public void setNumMetaRecord(int numMetaRecord) {
-		this.numMetaRecord = numMetaRecord;
-	}
 }
 
 class SequentialSegs implements Serializable {

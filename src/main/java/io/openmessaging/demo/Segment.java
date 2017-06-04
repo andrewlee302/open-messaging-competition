@@ -206,6 +206,12 @@ class ReadableSegment extends Segment {
 			offsets[i] = ib.get();
 		}
 	}
+
+	public void close() {
+		this.buffer = null;
+		this.offsets = null;
+	}
+
 }
 
 class SegmentInputStream extends InputStream {
@@ -326,18 +332,6 @@ class CompressedSuperSegment extends SegmentOutputStream {
 		msgBuffer.flip();
 		msgBuffer.get(data);
 
-		FileOutputStream out;
-		try {
-			out = new FileOutputStream("/Users/andrew/workspace/java/open-messaging-demo/" + (i++) + ".txt");
-			out.write(data);
-			out.close();
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
 		// ByteArrayInputStream bais = new ByteArrayInputStream(data);
 		// GZIPInputStream decompressInput;
 		// try {
@@ -383,8 +377,7 @@ class DecompressedSuperSegment extends ByteBufferInputStream {
 		}
 	}
 
-	public byte[] decompress() {
-		byte[] data = new byte[originSuperSegSize];
+	public byte[] decompress(byte[] data) {
 		try {
 			int len, off = 0;
 			while ((len = decompressInput.read(data, off, originSuperSegSize - off)) > 0) {

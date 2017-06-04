@@ -214,6 +214,7 @@ public class DefaultBytesMessage implements BytesMessage {
 		byte[] temp = new byte[msgSize];
 		buffer.position(off);
 		buffer.get(temp);
+		buffer = null;
 		return deserializeToMsg(temp);
 	}
 

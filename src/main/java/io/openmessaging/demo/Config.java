@@ -1,5 +1,7 @@
 package io.openmessaging.demo;
 
+import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -16,26 +18,30 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
+
+	public static final int PARTITION_NUM = 2;
+
 	// write
 	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
 	public static final int COMPRESS_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
-	
-	
+
 	// read
 	/**
 	 * 500 super-segment
 	 */
-	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250; 
-	
+	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
+	// !!! will affect page cache in OS
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 64; // totally 512M
+
+
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 128;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 300; // ms
 	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;
-	
-	
+
 	public static final int MAX_MESSAGE_POOL_CAPACITY = 32;
 
 	/**
-	 *  it directly relates to the messages' lifecycle.
+	 * it directly relates to the messages' lifecycle.
 	 */
 	public static final int SEGMENT_SIZE = 1 << 16;
 
@@ -54,22 +60,31 @@ public class Config {
 	// segment a message is 1 MByte and 100 bytes,
 	// so every bucket needs 40 segments averagely.
 	// WRITE_SEGMENT_QUEUE_SIZE
-	
-	
+
 	// -----------------------------------------
+	public final static HashMap<String, Integer> BUCKET_RANK_MAP = new HashMap<>(Config.NUM_BUCKETS);
 	public final static Set<String> HACK_BUCKETS = new HashSet<>(Config.NUM_BUCKETS);
 	public final static Set<String> HACK_QUEUES = new HashSet<>(Config.NUM_QUEUES);
 	public final static Set<String> HACK_TOPICS = new HashSet<>(Config.NUM_TOPICS);
 	static {
+		int cnt = 0;
 		for (int i = 0; i < Config.NUM_QUEUES; i++) {
 			String bucket = "QUEUE_" + i;
 			HACK_BUCKETS.add(bucket);
 			HACK_QUEUES.add(bucket);
+			BUCKET_RANK_MAP.put(bucket, cnt % PARTITION_NUM);
+			cnt++;
 		}
 		for (int i = 0; i < Config.NUM_TOPICS; i++) {
 			String bucket = "TOPIC_" + i;
 			HACK_BUCKETS.add(bucket);
 			HACK_TOPICS.add(bucket);
+			BUCKET_RANK_MAP.put(bucket, cnt % PARTITION_NUM);
+			cnt++;
 		}
+	}
+
+	public static String getFileName(String dir, int rank, int fileId) {
+		return Paths.get(dir, "" + rank + "_" + fileId + ".data").toString();
 	}
 }

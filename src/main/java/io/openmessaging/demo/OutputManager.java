@@ -24,31 +24,36 @@ public class OutputManager {
 	private static OutputManager INSTANCE;
 
 	private MetaInfo allMetaInfo;
-	private BlockingQueue<CompressRequest> compressReqQueue;
-	private BlockingQueue<PersistSuperSegRequest> persistReqQueue;
 
-	private CompressService compressService;
-	private Thread compressThread;
+	private int partitionNum = Config.PARTITION_NUM;
 
-	private PersistencyService persistencyService;
-	private Thread persistencyThread;
+	private BlockingQueue<CompressRequest>[] compressReqQueues = new BlockingQueue[partitionNum];
+	private BlockingQueue<PersistSuperSegRequest>[] persistReqQueues = new BlockingQueue[partitionNum];
+
+	private CompressService[] compressServices = new CompressService[partitionNum];
+	private Thread[] compressThreads = new Thread[4];
+
+	private PersistencyService[] persistencyServices = new PersistencyService[4];
+	private Thread[] persistencyThreads = new Thread[4];
+
 	private String storePath;
 
 	private OutputManager() {
 		this.storePath = SmartMessageStore.STORE_PATH;
-		this.compressReqQueue = new LinkedBlockingQueue<>(Config.COMPRESS_REQUEST_QUEUE_SIZE);
-		this.persistReqQueue = new LinkedBlockingQueue<>(Config.PERSIST_REQUEST_QUEUE_SIZE);
+		this.allMetaInfo = new MetaInfo();
+		for (int i = 0; i < partitionNum; i++) {
+			this.compressReqQueues[i] = new LinkedBlockingQueue<>(Config.COMPRESS_REQUEST_QUEUE_SIZE);
+			this.persistReqQueues[i] = new LinkedBlockingQueue<>(Config.PERSIST_REQUEST_QUEUE_SIZE);
 
-		this.allMetaInfo = new MetaInfo(Config.NUM_BUCKETS);
+			// start compress and persistency service
+			this.compressServices[i] = new CompressService(i);
+			this.compressThreads[i] = new Thread(compressServices[i]);
+			this.compressThreads[i].start();
 
-		// start compress and persistency service
-		this.compressService = new CompressService();
-		this.compressThread = new Thread(compressService);
-		this.compressThread.start();
-
-		this.persistencyService = new PersistencyService();
-		this.persistencyThread = new Thread(persistencyService);
-		this.persistencyThread.start();
+			this.persistencyServices[i] = new PersistencyService(i);
+			this.persistencyThreads[i] = new Thread(persistencyServices[i]);
+			this.persistencyThreads[i].start();
+		}
 	}
 
 	public static OutputManager getInstance() {
@@ -66,13 +71,17 @@ public class OutputManager {
 	 */
 	public void flush(Set<String> queues, Set<String> topics) {
 		try {
-			compressReqQueue.put(CompressRequest.NULL);
+			for (int i = 0; i < partitionNum; i++) {
+				compressReqQueues[i].put(CompressRequest.NULL);
+			}
 		} catch (InterruptedException e1) {
 			e1.printStackTrace();
 		}
 		try {
-			compressThread.join();
-			persistencyThread.join();
+			for (int i = 0; i < partitionNum; i++) {
+				compressThreads[i].join();
+				persistencyThreads[i].join();
+			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -91,9 +100,10 @@ public class OutputManager {
 	public void sendToCompressReqQueue(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
 			int index) {
 		try {
-			compressReqQueue.put(new CompressRequest(callbackQueue, bucket, seg, index));
-			if (bucket != seg.bucket) {
-				logger.warning("why ");
+			compressReqQueues[Config.BUCKET_RANK_MAP.get(bucket)]
+					.put(new CompressRequest(callbackQueue, bucket, seg, index));
+			if (!bucket.equals(seg.bucket)) {
+				logger.warning("why");
 			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
@@ -114,13 +124,15 @@ public class OutputManager {
 		allMetaInfo.setTopicsSize(topicsSize);
 		allMetaInfo.setQueues(queues);
 		allMetaInfo.setTopics(topics);
-		allMetaInfo.setNumDataFiles(compressService.fileId);
-		// same with numDataFiles
-		allMetaInfo.setNumSuperSegs(compressService.numSuperSegs);
-		allMetaInfo.setNumTotalSegs(compressService.numTotalSegs);
-		allMetaInfo.setNumMetaRecord(compressService.numMetaRecord);
-		allMetaInfo.setFileSuperSegMap(compressService.fileSuperSegMap);
-		allMetaInfo.setSequentialOccurs(compressService.sequentialOccurs);
+		for (int i = 0; i < partitionNum; i++) {
+			allMetaInfo.setNumDataFiles(i, compressServices[i].fileId);
+			// same with numDataFiles
+			allMetaInfo.setNumSuperSegs(i, compressServices[i].numSuperSegs);
+			allMetaInfo.setNumTotalSegs(i, compressServices[i].numTotalSegs);
+			allMetaInfo.setNumMetaRecord(i, compressServices[i].numMetaRecord);
+			allMetaInfo.setFileSuperSegMap(i, compressServices[i].fileSuperSegMap);
+			allMetaInfo.setSequentialOccurs(i, compressServices[i].sequentialOccurs);
+		}
 
 		ByteArrayOutputStream baos = new ByteArrayOutputStream(1 << 22); // 4Mb
 		ObjectOutputStream oos;
@@ -155,6 +167,7 @@ public class OutputManager {
 	}
 
 	class CompressService implements Runnable {
+		int rank;
 
 		int fileId = 0; // from 0
 		int numTotalSegs = 0;
@@ -166,7 +179,8 @@ public class OutputManager {
 
 		HashMap<Integer, FileSuperSeg> fileSuperSegMap;
 
-		public CompressService() {
+		public CompressService(int rank) {
+			this.rank = rank;
 			this.fileSuperSegMap = new HashMap<>();
 			this.compressBuff = new byte[Config.SEGMENT_SIZE * Config.REQ_BATCH_COUNT_THRESHOLD]; // 8M
 		}
@@ -181,7 +195,7 @@ public class OutputManager {
 				for (int i = 0; i < reqBatchCountThreshold; i++) {
 					CompressRequest req = null;
 					try {
-						req = compressReqQueue.poll(bathThreasholdTime, TimeUnit.MILLISECONDS);
+						req = compressReqQueues[rank].poll(bathThreasholdTime, TimeUnit.MILLISECONDS);
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
@@ -205,7 +219,7 @@ public class OutputManager {
 				reqs.clear();
 			}
 			try {
-				persistReqQueue.put(PersistSuperSegRequest.NULL);
+				persistReqQueues[rank].put(PersistSuperSegRequest.NULL);
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
@@ -233,7 +247,7 @@ public class OutputManager {
 			// keep the order of one bucket for combination
 			Collections.sort(reqs);
 
-			logger.info("hehe fileid " + superSegFileId);
+//			logger.info("hehe rank" + rank + " , fileid " + superSegFileId);
 			CompressRequest preReq = reqs.get(0);
 			String preBucket = preReq.bucket;
 			int preIndex = preReq.index;
@@ -251,16 +265,16 @@ public class OutputManager {
 				}
 				if (!req.bucket.equals(preBucket)) {
 					sequentialOccurs++;
-					logger.info("hehe bucket " + preBucket);
+//					logger.info("hehe rank" + rank + ", bucket " + preBucket);
 					fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
-					BucketMeta meta = allMetaInfo.get(preBucket);
+					BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
 					if (meta == null) {
 						meta = new BucketMeta();
-						allMetaInfo.put(preBucket, meta);
+						allMetaInfo.bucketMetaMap.put(preBucket, meta);
 					}
-					numMetaRecord++;
 					meta.addMetaRecord(preIndex, superSegFileId, offset, numSegsTmp);
 					meta.addNumSegs(numSegsTmp);
+					numMetaRecord++;
 
 					preBucket = req.bucket;
 					preIndex = req.index;
@@ -272,22 +286,22 @@ public class OutputManager {
 			}
 			// last bucket group of segments
 			sequentialOccurs++;
-			logger.info("hehe bucket " + preBucket);
+			logger.info("hehe rank" + rank + ", bucket " + preBucket);
 			fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
 
-			BucketMeta meta = allMetaInfo.get(preBucket);
+			BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
 			if (meta == null) {
 				meta = new BucketMeta();
-				allMetaInfo.put(preBucket, meta);
+				allMetaInfo.bucketMetaMap.put(preBucket, meta);
 			}
-			numMetaRecord++;
 			meta.addMetaRecord(preIndex, superSegFileId, offset, numSegsTmp);
 			meta.addNumSegs(numSegsTmp);
+			numMetaRecord++;
 
 			byte[] compressData = css.getCompressedData();
 			fileSuperSeg.compressedSize = compressData.length;
 			try {
-				persistReqQueue.put(new PersistSuperSegRequest(compressData, superSegFileId, reqSize));
+				persistReqQueues[rank].put(new PersistSuperSegRequest(compressData, superSegFileId, reqSize));
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
@@ -299,12 +313,14 @@ public class OutputManager {
 	}
 
 	class PersistencyService implements Runnable {
+		int rank;
 
 		int numPersistSuperSeg = 0;
 
 		HashMap<Integer, FileSuperSeg> fileSuperSegMap;
 
-		public PersistencyService() {
+		public PersistencyService(int rank) {
+			this.rank = rank;
 			this.fileSuperSegMap = new HashMap<>();
 		}
 
@@ -313,7 +329,7 @@ public class OutputManager {
 			while (true) {
 				PersistSuperSegRequest req = null;
 				try {
-					req = persistReqQueue.take();
+					req = persistReqQueues[rank].take();
 					if (req == PersistSuperSegRequest.NULL) {
 						logger.info("Receive the end signal");
 						break;
@@ -338,8 +354,7 @@ public class OutputManager {
 			RandomAccessFile memoryMappedFile = null;
 			MappedByteBuffer buffer = null;
 			int superSegFileId = req.fileId;
-			Path p = Paths.get(storePath, superSegFileId + ".data");
-			String filename = p.toString();
+			String filename = Config.getFileName(storePath, rank, superSegFileId);
 			try {
 				memoryMappedFile = new RandomAccessFile(filename, "rw");
 				buffer = memoryMappedFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, fileSize);
