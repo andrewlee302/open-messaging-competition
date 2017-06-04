@@ -3,7 +3,6 @@ package io.openmessaging.demo;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Set;
 
 //all meta info
@@ -38,6 +37,7 @@ public class MetaInfo implements Serializable {
 	// ArrayList<Byte> bucketParts = new ArrayList<>(90000);
 	transient int cursorOfBucketParts = 0;
 
+	@SuppressWarnings("unchecked")
 	public MetaInfo() {
 		numMetaRecords = new int[Config.PARTITION_NUM];
 		sequentialOccurs = new int[Config.PARTITION_NUM];

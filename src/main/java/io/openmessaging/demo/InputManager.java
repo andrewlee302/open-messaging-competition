@@ -41,6 +41,7 @@ public class InputManager {
 	private DiskFetchService[] fetchServices = new DiskFetchService[partitionNum];
 	private Thread[] fetchThreads = new Thread[partitionNum];
 
+	@SuppressWarnings("unchecked")
 	private BlockingQueue<DecompressSuperSegReq>[] decompressReqQueues = new BlockingQueue[partitionNum];
 	private DecompressService[] decompressServices = new DecompressService[partitionNum];
 	private Thread[] decompressThreads = new Thread[partitionNum];
@@ -54,6 +55,7 @@ public class InputManager {
 	private MessageEncoderService[] msgEncoderServices;
 	private Thread[] msgEncoderThreads;
 
+	@SuppressWarnings("unchecked")
 	private InputManager() {
 		this.storePath = SmartMessageStore.STORE_PATH;
 		byteArrayPool = ByteArrayPool.getInstance();
@@ -173,8 +175,6 @@ public class InputManager {
 			HashMap<Integer, FileSuperSeg> fileSuperSegMap = allMetaInfo.getFileSuperSegMap(rank);
 			for (int fileId = 0; fileId < allMetaInfo.numDataFiles[rank]; fileId++) {
 				FileSuperSeg fileSuperSeg = fileSuperSegMap.get(fileId);
-				long start = System.currentTimeMillis();
-
 				String filename = Config.getFileName(storePath, rank, fileId);
 
 				int numSegsInSuperSeg = fileSuperSeg.numSegsInSuperSeg;
@@ -198,34 +198,14 @@ public class InputManager {
 				} catch (IOException e) {
 					e.printStackTrace();
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				} finally {
 					memoryMappedFile = null;
 				}
 
-				// /**
-				// * readFileSize isn't same with file size necessarily.
-				// */
-				// long actualFileSize = new File(filename).length();
-				// if (readFileSize > actualFileSize) {
-				// logger.warning(
-				// "read size (" + readFileSize + ") exceeds actual file size ("
-				// + actualFileSize + ")");
-				// }
-				// if (readFileSize < actualFileSize) {
-				// logger.warning(
-				// "read size (" + readFileSize + ") is less than actual file
-				// size (" + actualFileSize + ")");
-				// }
-
-				int localnumFetchSuperSeg = numFetchSuperSegs.incrementAndGet();
+				numFetchSuperSegs.incrementAndGet();
 				numFetchSegs.addAndGet(numSegsInSuperSeg);
 
-				long end = System.currentTimeMillis();
-
-				logger.info(String.format("(%dth superseg) Read super-segment data from %s cost %d ms, %d bytes",
-						localnumFetchSuperSeg, filename, end - start, fileSuperSeg.compressedSize));
 			}
 
 			logger.info("Read all the files, emit finish signal");
@@ -264,6 +244,7 @@ public class InputManager {
 					decompressReqQueuesWaitOccur++;
 
 					if (req != DecompressSuperSegReq.NULL) {
+						@SuppressWarnings("resource")
 						DecompressedSuperSegment dss = new DecompressedSuperSegment(req.buffer, req.numSegsInSuperSeg,
 								req.compressedSize);
 
@@ -278,16 +259,8 @@ public class InputManager {
 						int segCursor = 0;
 						for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
 							String bucket = sss.bucket;
-							// TODO multi-service
-							// distinguish the bucket
 							BlockingQueue<ConsecutiveSegs> readConsecutiveSegsQueue = readConsecutiveSegsQueues[Config.BUCKET_RANK_MAP
 									.get(bucket)];
-							if (readConsecutiveSegsQueue == null) {
-								logger.severe("lack corresponding readBufferQueue " + bucket);
-							}
-							// System.out.printf("rank%d, fileId=%d, bucket=%s,
-							// offset=%d, numSegs=%d\n", rank, req.fileId,
-							// bucket, segCursor, sss.numSegs);
 							readConsecutiveSegsQueue
 									.put(new ConsecutiveSegs(rank, req.fileId, bucket, unit, segCursor, sss.numSegs));
 							segCursor += sss.numSegs;
@@ -296,8 +269,6 @@ public class InputManager {
 						long end = System.currentTimeMillis();
 						decompressTotalCost += (end - start);
 						decompressTotalSize += (fileSuperSeg.compressedSize);
-						logger.info(String.format("Decompress (%d->%d), cost %d ms", fileSuperSeg.compressedSize,
-								fileSuperSeg.numSegsInSuperSeg * Config.SEGMENT_SIZE, end - start));
 					} else {
 						break;
 					}
@@ -378,8 +349,6 @@ public class InputManager {
 		 * @param segLength
 		 */
 		private void processSequentialSegments(ConsecutiveSegs sc) {
-			long start = System.currentTimeMillis();
-			int numMsgs = 0;
 			int offsetSegUnit = sc.offsetSegUnit;
 			for (int i = 0; i < sc.numSegs; i++) {
 				// !!sc.buff may be shared by other threads
@@ -404,7 +373,6 @@ public class InputManager {
 					pool = new MessagePool(Config.MAX_MESSAGE_POOL_CAPACITY);
 					while (true) {
 						msg = readSegment.read();
-						numMsgs++;
 						if (!pool.addMessageIfRemain(msg)) {
 							// pool full
 							long s = System.currentTimeMillis();
@@ -444,14 +412,11 @@ public class InputManager {
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				} finally {
-					// TODO
 					byteArrayPool.returnByteArray(sc.unit);
 					readSegment.close();
 					readSegment = null;
 				}
 			}
-			long end = System.currentTimeMillis();
-			logger.info(String.format("Decoder %d msgs, cost %d ms", numMsgs, end - start));
 		}
 	}
 }
@@ -579,7 +544,6 @@ class ByteArrayPool {
 			b = pool.take();
 			holdNums[b.id].set(holdNum);
 		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return b;

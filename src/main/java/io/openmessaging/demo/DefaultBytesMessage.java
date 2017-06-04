@@ -1,12 +1,10 @@
 package io.openmessaging.demo;
 
 import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.Logger;
 
 import io.openmessaging.BytesMessage;
 import io.openmessaging.KeyValue;
@@ -14,9 +12,6 @@ import io.openmessaging.Message;
 import io.openmessaging.MessageHeader;
 
 public class DefaultBytesMessage implements BytesMessage {
-
-	private static final long serialVersionUID = 1955733544808061966L;
-	private static transient Logger logger = Logger.getGlobal();
 
 	private DefaultKeyValue headers;
 	private DefaultKeyValue properties;
@@ -98,9 +93,6 @@ public class DefaultBytesMessage implements BytesMessage {
 		int kvStart = HEADER_SIZE + (numHeaderKvs + numPropKvs) * 4 + 2;
 		int bodyStart = kvStart + kvSize;
 		int msgSize = bodyStart + body.length;
-		// logger.info(String.format("kvStart = %d, bodyStart = %d, kvSize = %d,
-		// bodySize = %d, msgSize = %d\n", kvStart,
-		// bodyStart, kvSize, body.length, msgSize));
 		if (msgSize > len) {
 			return 0;
 		}
@@ -207,7 +199,6 @@ public class DefaultBytesMessage implements BytesMessage {
 			return null;
 		int msgSize = _4byte2int(buffer, off + 1);
 		if (len < msgSize) {
-			logger.warning(String.format("%d < %d", len, msgSize));
 			return null;
 		}
 
@@ -287,9 +278,6 @@ public class DefaultBytesMessage implements BytesMessage {
 
 		int bodyStart = kvOff;
 		int bodyLen = msgSize - bodyStart;
-		// logger.info(String.format("bodyStart = %d, bodyLen = %d,msgSize = %d,
-		// offPos = %d\n", bodyStart, bodyLen,
-		// msgSize, offPos));
 		byte[] body = new byte[bodyLen];
 		System.arraycopy(msgBytes, bodyStart, body, 0, bodyLen);
 		DefaultBytesMessage msg = new DefaultBytesMessage(body, false);

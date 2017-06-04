@@ -27,7 +27,9 @@ public class OutputManager {
 
 	private int partitionNum = Config.PARTITION_NUM;
 
+	@SuppressWarnings("unchecked")
 	private BlockingQueue<CompressRequest>[] compressReqQueues = new BlockingQueue[partitionNum];
+	@SuppressWarnings("unchecked")
 	private BlockingQueue<PersistSuperSegRequest>[] persistReqQueues = new BlockingQueue[partitionNum];
 
 	private CompressService[] compressServices = new CompressService[partitionNum];
@@ -101,9 +103,6 @@ public class OutputManager {
 		try {
 			compressReqQueues[Config.BUCKET_RANK_MAP.get(bucket)]
 					.put(new CompressRequest(callbackQueue, bucket, seg, index));
-			if (!bucket.equals(seg.bucket)) {
-				logger.warning("why");
-			}
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -239,6 +238,7 @@ public class OutputManager {
 			if (reqSize == 0) {
 				return;
 			}
+			@SuppressWarnings("resource")
 			CompressedSuperSegment css = new CompressedSuperSegment(compressBuff);
 			numTotalSegs += reqSize;
 			long start = System.currentTimeMillis();
@@ -256,7 +256,6 @@ public class OutputManager {
 			int offset = 0, numSegsTmp = 0;
 			for (int i = 0; i < reqs.size(); i++) {
 				CompressRequest req = reqs.get(i);
-				// allMetaInfo.addBucketInfo(req.bucket);
 				css.append(req.seg);
 
 				try {
@@ -309,8 +308,6 @@ public class OutputManager {
 			long end = System.currentTimeMillis();
 			compressTotalCost += (end - start);
 			compressTotalSize += compressData.length;
-			logger.info(String.format("(%dth) Compress data (%d->%d) cost %d ms", ++numSuperSegs,
-					reqSize * Config.SEGMENT_SIZE, compressData.length, end - start));
 		}
 	}
 
@@ -351,7 +348,6 @@ public class OutputManager {
 		 */
 		private void persistSuperSegment(PersistSuperSegRequest req) {
 			int fileSize = req.compressedData.length;
-			long start = System.currentTimeMillis();
 			RandomAccessFile memoryMappedFile = null;
 			MappedByteBuffer buffer = null;
 			int superSegFileId = req.fileId;
@@ -367,8 +363,6 @@ public class OutputManager {
 			buffer.put(req.compressedData);
 
 			numPersistSuperSeg++;
-			long end = System.currentTimeMillis();
-			logger.info(String.format("Persist data (%d) to %s cost %d ms", fileSize, filename, end - start));
 		}
 	}
 }

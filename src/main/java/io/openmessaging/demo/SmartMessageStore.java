@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -44,13 +43,6 @@ public class SmartMessageStore {
 	// ------------------------------------------------------------
 	// input
 
-	// private Set<String> regQueues, regTopics;
-
-	// private HashMap<String, BucketOccurs> bucketSubMap;
-	// private PriorityQueue<BucketOccurs> orderedBucketOccurs; // descending
-	// order
-
-	private int numConsumers = 0;
 	private InputManager inputManager;
 	private HashMap<String, Integer> consumerNullMsgNumMap;
 
@@ -71,7 +63,7 @@ public class SmartMessageStore {
 			// output
 			this.bucketWriteBoxMap = new HashMap<>(Config.NUM_BUCKETS);
 
-			// TODO hack
+			// hack
 			for (String bucket: Config.HACK_BUCKETS) {
 				bucketWriteBoxMap.put(bucket, new BucketWriteBox(bucket));
 			}
@@ -109,8 +101,6 @@ public class SmartMessageStore {
 
 			if (IS_OUTPUT_OR_INPUT)
 				INSTANCE.numProducers++;
-			else
-				INSTANCE.numConsumers++;
 		}
 		return INSTANCE;
 	}
@@ -130,7 +120,6 @@ public class SmartMessageStore {
 	public MessagePool getMessagePool(String queue, int bucketSize) {
 
 		// if receive #bucketList NullMessage, then can stop
-		MessagePool msg = null;
 		try {
 			BlockingQueue<MessagePool> bq = consumerBindingMsgQueueMap.get(queue);
 			if (bq == null) {
@@ -155,32 +144,9 @@ public class SmartMessageStore {
 		}
 	}
 
+	@Deprecated
 	public Message pullMessage(String queue, int bucketSize) {
-
-		// if receive #bucketList NullMessage, then can stop
-		Message msg = null;
-		try {
-			BlockingQueue<MessagePool> bq = consumerBindingMsgQueueMap.get(queue);
-			if (bq == null) {
-				return null;
-			}
-			while (true) {
-				MessagePool msgPool = bq.take();
-				if (msg == MessagePool.nullMessagePool) {
-					int numNumMsg = consumerNullMsgNumMap.get(queue) + 1;
-					consumerNullMsgNumMap.put(queue, numNumMsg);
-					if (numNumMsg == bucketSize) {
-						return null;
-					} else {
-						continue;
-					}
-				} else {
-					return msg;
-				}
-			}
-		} catch (InterruptedException e) {
-			return null;
-		}
+		return null;
 	}
 
 	/**
@@ -224,7 +190,6 @@ public class SmartMessageStore {
 
 	int numRegister = 0;
 
-	// TODO, keep sync with other services and don't waste time
 	/**
 	 * Get the hottest bucket and init the bucket read queue.
 	 * 
