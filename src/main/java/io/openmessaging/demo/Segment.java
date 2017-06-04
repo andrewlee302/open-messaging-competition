@@ -7,8 +7,11 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 import java.util.logging.Logger;
+import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
 import io.openmessaging.Message;
@@ -283,18 +286,16 @@ class ByteBufferInputStream extends InputStream {
 }
 
 class CompressedSuperSegment extends SegmentOutputStream {
-	GZIPOutputStream compressOutput;
+	// GZIPOutputStream compressOutput;
+	DeflaterOutputStream compressOutput;
 
 	int numSeg = 0;
 	int writeSize = 0;
 
 	public CompressedSuperSegment(byte[] buff) {
 		super(buff);
-		try {
-			compressOutput = new GZIPOutputStream(this);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		// compressOutput = new GZIPOutputStream(this);
+		compressOutput = new DeflaterOutputStream(this, new Deflater(Deflater.BEST_SPEED));
 	}
 
 	byte[] b;
@@ -357,7 +358,8 @@ class CompressedSuperSegment extends SegmentOutputStream {
 }
 
 class DecompressedSuperSegment extends ByteBufferInputStream {
-	GZIPInputStream decompressInput;
+	InflaterInputStream decompressInput;
+	// GZIPInputStream decompressInput;
 	int numSegs;
 	int originSuperSegSize;
 	long compressedSize;
@@ -367,11 +369,8 @@ class DecompressedSuperSegment extends ByteBufferInputStream {
 		this.numSegs = numSegs;
 		this.originSuperSegSize = numSegs * Config.SEGMENT_SIZE;
 		this.compressedSize = compressedSize;
-		try {
-			decompressInput = new GZIPInputStream(this);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		// decompressInput = new GZIPInputStream(this);
+		decompressInput = new InflaterInputStream(this, new Inflater());
 	}
 
 	public byte[] decompress(byte[] data) {

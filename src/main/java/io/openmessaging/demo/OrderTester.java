@@ -24,10 +24,8 @@ public class OrderTester {
 	static HashMap<Integer, HashMap<Integer, Integer>> producerSeqs = new HashMap<>();
 
 	public static void main(String[] args) {
-		ByteArrayPool pool1 = ByteArrayPool.getInstance();
-		ByteArrayPool pool2 = ByteArrayPool.getInstance();
-		System.out.println(pool1==pool2);
-//		testOrder();
+	
+		testOrder();
 	}
 
 	public static void testRead() {
@@ -160,8 +158,8 @@ public class OrderTester {
 	}
 
 	private static void error(int producerId, int bucketId, int seq, int expected) {
-		// System.out.println(String.format("E[%d %d %d], %d", producerId,
-		// bucketId, seq, expected));
+		 System.out.println(String.format("E[%d %d %d], %d", producerId,
+		 bucketId, seq, expected));
 	}
 
 	private static void correct(int producerId, int bucketId, int seq, int expected) {

@@ -307,7 +307,7 @@ public class OutputManager {
 			}
 
 			long end = System.currentTimeMillis();
-			compressTotalCost += (start - end);
+			compressTotalCost += (end - start);
 			compressTotalSize += compressData.length;
 			logger.info(String.format("(%dth) Compress data (%d->%d) cost %d ms", ++numSuperSegs,
 					reqSize * Config.SEGMENT_SIZE, compressData.length, end - start));

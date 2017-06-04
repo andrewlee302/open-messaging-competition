@@ -246,6 +246,8 @@ public class InputManager {
 	class DecompressService implements Runnable {
 		int rank;
 
+		long decompressTotalCost = 0;
+		long decompressTotalSize = 0;
 		DecompressService(int rank) {
 			this.rank = rank;
 		}
@@ -288,6 +290,8 @@ public class InputManager {
 						}
 
 						long end = System.currentTimeMillis();
+						decompressTotalCost+=(end-start);
+						decompressTotalSize +=(fileSuperSeg.compressedSize);
 						logger.info(String.format("Decompress (%d->%d), cost %d ms", fileSuperSeg.compressedSize,
 								fileSuperSeg.numSegsInSuperSeg * Config.SEGMENT_SIZE, end - start));
 					} else {
@@ -300,6 +304,8 @@ public class InputManager {
 					req = null;
 				}
 			}
+			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes", rank, decompressTotalCost,
+					decompressTotalSize));
 			decompressLatch.countDown();
 			try {
 				decompressLatch.await();
@@ -519,7 +525,6 @@ class ByteArrayUnit {
 
 	ByteArrayUnit(int id) {
 		super();
-		System.out.println("init");
 		this.data = new byte[Config.REQ_BATCH_COUNT_THRESHOLD * Config.SEGMENT_SIZE];
 		this.id = id;
 	}

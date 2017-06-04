@@ -32,13 +32,13 @@ public class Config {
 	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
 
 	// !!! will affect page cache in OS
-	public static final int DECOMPRESS_BYTE_POOL_SIZE = 128; // totally 512M
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 64; // totally 512M
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
 	public static final long REQ_WAIT_TIME_THRESHOLD = 100; // ms
 
 	public static final int WRITE_SEGMENT_QUEUE_SIZE = 10 * 20;
 
-	public static final int MAX_MESSAGE_POOL_CAPACITY = 32;
+	public static final int MAX_MESSAGE_POOL_CAPACITY = 64;
 
 	/**
 	 * it directly relates to the messages' lifecycle.
