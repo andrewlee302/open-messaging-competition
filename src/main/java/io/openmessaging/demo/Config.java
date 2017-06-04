@@ -19,7 +19,7 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int PARTITION_NUM = 4;
+	public static final int PARTITION_NUM = 10;
 
 	// write
 	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
@@ -44,7 +44,7 @@ public class Config {
 	/**
 	 * it directly relates to the messages' lifecycle.
 	 */
-	public static final int SEGMENT_SIZE = 1 << 14;
+	public static final int SEGMENT_SIZE = 1 << 15;
 
 
 	public static final int NUM_READ_DISK_THREAD = 16;
