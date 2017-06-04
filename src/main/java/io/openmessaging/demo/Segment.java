@@ -9,6 +9,7 @@ import java.nio.IntBuffer;
 import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.InflaterInputStream;
 
 import io.openmessaging.Message;
 

@@ -164,8 +164,6 @@ public class InputManager {
 		return allMetaInfo;
 	}
 
-	static CountDownLatch diskFetchlatch = new CountDownLatch(Config.NUM_READ_DISK_THREAD);
-
 	class DiskFetchService implements Runnable {
 
 		int rank;
@@ -266,7 +264,7 @@ public class InputManager {
 						long start = System.currentTimeMillis();
 						FileSuperSeg fileSuperSeg = fileSuperSegMap.get(req.fileId);
 
-						ByteArrayUnit unit = byteArrayPool.fetchByteArray(fileSuperSeg.sequentialSegs.size());
+						ByteArrayUnit unit = byteArrayPool.fetchByteArray(fileSuperSeg.numSegsInSuperSeg);
 						byte[] superSegmentBinary = unit.data;
 
 						dss.decompress(superSegmentBinary);
@@ -530,14 +528,15 @@ class ByteArrayUnit {
 
 class ByteArrayPool {
 	private ArrayBlockingQueue<ByteArrayUnit> pool;
-	private int[] holdNums;
+	private AtomicInteger[] holdNums;
 
 	private final static ByteArrayPool INSTANCE = new ByteArrayPool();
 
 	private ByteArrayPool() {
 		pool = new ArrayBlockingQueue<>(Config.DECOMPRESS_BYTE_POOL_SIZE);
-		holdNums = new int[Config.DECOMPRESS_BYTE_POOL_SIZE];
+		holdNums = new AtomicInteger[Config.DECOMPRESS_BYTE_POOL_SIZE];
 		for (int i = 0; i < Config.DECOMPRESS_BYTE_POOL_SIZE; i++) {
+			holdNums[i] = new AtomicInteger();
 			try {
 				pool.put(new ByteArrayUnit(i));
 			} catch (InterruptedException e) {
@@ -550,7 +549,7 @@ class ByteArrayPool {
 		ByteArrayUnit b = null;
 		try {
 			b = pool.take();
-			holdNums[b.id] = holdNum;
+			holdNums[b.id].set(holdNum);
 		} catch (InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -560,7 +559,7 @@ class ByteArrayPool {
 
 	public void returnByteArray(ByteArrayUnit b) {
 		try {
-			if (--holdNums[b.id] == 0)
+			if (holdNums[b.id].decrementAndGet() == 0)
 				pool.put(b);
 		} catch (InterruptedException e) {
 			e.printStackTrace();

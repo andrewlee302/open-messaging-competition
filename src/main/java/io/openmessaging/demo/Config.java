@@ -49,8 +49,8 @@ public class Config {
 
 	public static final int DEFAULT_KEYVALUE_MAP_SIZE = 18;
 
-	public static final int NUM_ENCODER_MESSAGE_THREAD = 64;
-	public static final int NUM_READ_DISK_THREAD = 16;
+	public static final int NUM_ENCODER_MESSAGE_THREAD = PARTITION_NUM;
+	// public static final int NUM_READ_DISK_THREAD = 16;
 
 	public static final int READ_BUFFER_QUEUE_SIZE = Integer.MAX_VALUE;
 	public static final int READ_MSG_QUEUE_SIZE = Integer.MAX_VALUE;

@@ -221,7 +221,12 @@ public class OutputManager {
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
+			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes", rank, compressTotalCost,
+					compressTotalSize));
 		}
+
+		long compressTotalCost = 0;
+		long compressTotalSize = 0;
 
 		/**
 		 * One super segment consists more than one groups (with the same
@@ -302,6 +307,8 @@ public class OutputManager {
 			}
 
 			long end = System.currentTimeMillis();
+			compressTotalCost += (start - end);
+			compressTotalSize += compressData.length;
 			logger.info(String.format("(%dth) Compress data (%d->%d) cost %d ms", ++numSuperSegs,
 					reqSize * Config.SEGMENT_SIZE, compressData.length, end - start));
 		}
