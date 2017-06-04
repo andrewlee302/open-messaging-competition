@@ -3,6 +3,7 @@ package io.openmessaging.demo;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
 
 //all meta info
@@ -63,9 +64,8 @@ public class MetaInfo implements Serializable {
 		StringBuffer sb = new StringBuffer();
 		for (int i = 0; i < Config.PARTITION_NUM; i++) {
 			sb.append(String.format(
-					"queueSize = %d, topicsSize = %d, sequentialOccurs = %d, numTotalSegs = %d, numDataFiles = %d, numSuperSegs = %d, queues = %s, topics = %s",
-					queuesSize, topicsSize, sequentialOccurs[i], numTotalSegs[i], numDataFiles[i], numSuperSegs[i],
-					sbq.toString(), sbt.toString()));
+					"Rank%d queueSize = %d, topicsSize = %d, sequentialOccurs = %d, numTotalSegs = %d, numDataFiles = %d, numSuperSegs = %d\n",
+					i, queuesSize, topicsSize, sequentialOccurs[i], numTotalSegs[i], numDataFiles[i], numSuperSegs[i]));
 		}
 		return sb.toString();
 

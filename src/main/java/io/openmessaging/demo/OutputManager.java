@@ -31,10 +31,10 @@ public class OutputManager {
 	private BlockingQueue<PersistSuperSegRequest>[] persistReqQueues = new BlockingQueue[partitionNum];
 
 	private CompressService[] compressServices = new CompressService[partitionNum];
-	private Thread[] compressThreads = new Thread[4];
+	private Thread[] compressThreads = new Thread[partitionNum];
 
-	private PersistencyService[] persistencyServices = new PersistencyService[4];
-	private Thread[] persistencyThreads = new Thread[4];
+	private PersistencyService[] persistencyServices = new PersistencyService[partitionNum];
+	private Thread[] persistencyThreads = new Thread[partitionNum];
 
 	private String storePath;
 
@@ -94,7 +94,6 @@ public class OutputManager {
 		logger.info(allMetaInfo.toString());
 		logger.info(String.format("occurContentNotEnough = %d, occurMetaNotEnough = %d",
 				BucketWriteBox.occurContentNotEnough.get(), BucketWriteBox.occurMetaNotEnough.get()));
-
 	}
 
 	public void sendToCompressReqQueue(BlockingQueue<WritableSegment> callbackQueue, String bucket, WritableSegment seg,
@@ -203,7 +202,6 @@ public class OutputManager {
 						break;
 					} else {
 						if (req == CompressRequest.NULL) {
-							logger.info("Receive the end signal");
 							isEnd = true;
 							break;
 						} else {
@@ -247,7 +245,6 @@ public class OutputManager {
 			// keep the order of one bucket for combination
 			Collections.sort(reqs);
 
-//			logger.info("hehe rank" + rank + " , fileid " + superSegFileId);
 			CompressRequest preReq = reqs.get(0);
 			String preBucket = preReq.bucket;
 			int preIndex = preReq.index;
@@ -265,7 +262,6 @@ public class OutputManager {
 				}
 				if (!req.bucket.equals(preBucket)) {
 					sequentialOccurs++;
-//					logger.info("hehe rank" + rank + ", bucket " + preBucket);
 					fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
 					BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
 					if (meta == null) {
@@ -286,7 +282,6 @@ public class OutputManager {
 			}
 			// last bucket group of segments
 			sequentialOccurs++;
-			logger.info("hehe rank" + rank + ", bucket " + preBucket);
 			fileSuperSeg.sequentialSegs.add(new SequentialSegs(preBucket, numSegsTmp));
 
 			BucketMeta meta = allMetaInfo.bucketMetaMap.get(preBucket);
@@ -331,7 +326,6 @@ public class OutputManager {
 				try {
 					req = persistReqQueues[rank].take();
 					if (req == PersistSuperSegRequest.NULL) {
-						logger.info("Receive the end signal");
 						break;
 					} else {
 						persistSuperSegment(req);
@@ -365,9 +359,9 @@ public class OutputManager {
 
 			buffer.put(req.compressedData);
 
+			numPersistSuperSeg++;
 			long end = System.currentTimeMillis();
-			logger.info(String.format("(%dth) Persist data (%d) to %s cost %d ms", ++numPersistSuperSeg, fileSize,
-					filename, end - start));
+			logger.info(String.format("Persist data (%d) to %s cost %d ms", fileSize, filename, end - start));
 		}
 	}
 }

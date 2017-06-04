@@ -24,7 +24,10 @@ public class OrderTester {
 	static HashMap<Integer, HashMap<Integer, Integer>> producerSeqs = new HashMap<>();
 
 	public static void main(String[] args) {
-		testOrder();
+		ByteArrayPool pool1 = ByteArrayPool.getInstance();
+		ByteArrayPool pool2 = ByteArrayPool.getInstance();
+		System.out.println(pool1==pool2);
+//		testOrder();
 	}
 
 	public static void testRead() {

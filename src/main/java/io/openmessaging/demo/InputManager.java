@@ -31,6 +31,7 @@ public class InputManager {
 	static AtomicInteger numConsumeSuperSegs = new AtomicInteger();
 	static HashMap<String, AtomicInteger> processedSegmentNumMap;
 
+	private ByteArrayPool byteArrayPool;
 	private MetaInfo allMetaInfo;
 
 	private String storePath;
@@ -55,6 +56,7 @@ public class InputManager {
 
 	private InputManager() {
 		this.storePath = SmartMessageStore.STORE_PATH;
+		byteArrayPool = ByteArrayPool.getInstance();
 
 		// init bucketMetas
 		allMetaInfo = loadAllMetaInfo(storePath);
@@ -71,7 +73,9 @@ public class InputManager {
 
 		readConsecutiveSegsQueues = new LinkedBlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
-			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
+//			 readConsecutiveSegsQueues[i] = new
+//			 LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
+			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(50);
 		}
 
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
@@ -79,7 +83,9 @@ public class InputManager {
 
 		for (int i = 0; i < partitionNum; i++) {
 
-			this.decompressReqQueues[i] = new LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
+//			 this.decompressReqQueues[i] = new
+//			 LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
+			this.decompressReqQueues[i] = new LinkedBlockingQueue<>(50);
 
 			this.decompressServices[i] = new DecompressService(i);
 			this.decompressThreads[i] = new Thread(this.decompressServices[i]);
@@ -219,13 +225,13 @@ public class InputManager {
 				// size (" + actualFileSize + ")");
 				// }
 
-				numFetchSuperSegs.incrementAndGet();
+				int localnumFetchSuperSeg = numFetchSuperSegs.incrementAndGet();
 				numFetchSegs.addAndGet(numSegsInSuperSeg);
 
 				long end = System.currentTimeMillis();
 
 				logger.info(String.format("(%dth superseg) Read super-segment data from %s cost %d ms, %d bytes",
-						numFetchSuperSegs.get(), filename, end - start, fileSuperSeg.compressedSize));
+						localnumFetchSuperSeg, filename, end - start, fileSuperSeg.compressedSize));
 			}
 
 			logger.info("Read all the files, emit finish signal");
@@ -257,20 +263,16 @@ public class InputManager {
 						DecompressedSuperSegment dss = new DecompressedSuperSegment(req.buffer, req.numSegsInSuperSeg,
 								req.compressedSize);
 
+						long start = System.currentTimeMillis();
 						FileSuperSeg fileSuperSeg = fileSuperSegMap.get(req.fileId);
 
-						ByteArrayUnit unit  = ByteArrayPool.getInstance()
-								.fetchByteArray(fileSuperSeg.sequentialSegs.size());
+						ByteArrayUnit unit = byteArrayPool.fetchByteArray(fileSuperSeg.sequentialSegs.size());
 						byte[] superSegmentBinary = unit.data;
 
 						dss.decompress(superSegmentBinary);
-						// logger.info("hehe rank" + rank + " , fileid " +
-						// req.fileId);
 
 						int segCursor = 0;
 						for (SequentialSegs sss : fileSuperSeg.sequentialSegs) {
-							// logger.info("hehe rank" + rank + ", bucket " +
-							// sss.bucket);
 							String bucket = sss.bucket;
 							// TODO multi-service
 							// distinguish the bucket
@@ -282,10 +284,14 @@ public class InputManager {
 							// System.out.printf("rank%d, fileId=%d, bucket=%s,
 							// offset=%d, numSegs=%d\n", rank, req.fileId,
 							// bucket, segCursor, sss.numSegs);
-							readConsecutiveSegsQueue.put(new ConsecutiveSegs(rank, req.fileId, bucket,
-									unit, segCursor, sss.numSegs));
+							readConsecutiveSegsQueue
+									.put(new ConsecutiveSegs(rank, req.fileId, bucket, unit, segCursor, sss.numSegs));
 							segCursor += sss.numSegs;
 						}
+
+						long end = System.currentTimeMillis();
+						logger.info(String.format("Decompress (%d->%d), cost %d ms", fileSuperSeg.compressedSize,
+								fileSuperSeg.numSegsInSuperSeg * Config.SEGMENT_SIZE, end - start));
 					} else {
 						break;
 					}
@@ -351,6 +357,8 @@ public class InputManager {
 		 * @param segLength
 		 */
 		private void processSequentialSegments(ConsecutiveSegs sc) {
+			long start = System.currentTimeMillis();
+			int numMsgs = 0;
 			int offsetSegUnit = sc.offsetSegUnit;
 			for (int i = 0; i < sc.numSegs; i++) {
 				// !!sc.buff may be shared by other threads
@@ -375,6 +383,7 @@ public class InputManager {
 					pool = new MessagePool(Config.MAX_MESSAGE_POOL_CAPACITY);
 					while (true) {
 						msg = readSegment.read();
+						numMsgs++;
 						if (!pool.addMessageIfRemain(msg)) {
 							// pool full
 							for (BlockingQueue<MessagePool> queue : queueList)
@@ -409,12 +418,13 @@ public class InputManager {
 					e.printStackTrace();
 				} finally {
 					// TODO
-					ByteArrayPool.getInstance().returnByteArray(sc.unit);
-//					sc.unit = null;
+					byteArrayPool.returnByteArray(sc.unit);
 					readSegment.close();
 					readSegment = null;
 				}
 			}
+			long end = System.currentTimeMillis();
+			logger.info(String.format("Decoder %d msgs, cost %d ms", numMsgs, end - start));
 		}
 	}
 }
@@ -509,8 +519,9 @@ class ByteArrayUnit {
 	byte[] data;
 	int id; // from 0 to Config.DECOMPRESS_BYTE_POOL_SIZE-1
 
-	public ByteArrayUnit(int id) {
+	ByteArrayUnit(int id) {
 		super();
+		System.out.println("init");
 		this.data = new byte[Config.REQ_BATCH_COUNT_THRESHOLD * Config.SEGMENT_SIZE];
 		this.id = id;
 	}
@@ -521,7 +532,7 @@ class ByteArrayPool {
 	private ArrayBlockingQueue<ByteArrayUnit> pool;
 	private int[] holdNums;
 
-	private static ByteArrayPool INSTANCE;
+	private final static ByteArrayPool INSTANCE = new ByteArrayPool();
 
 	private ByteArrayPool() {
 		pool = new ArrayBlockingQueue<>(Config.DECOMPRESS_BYTE_POOL_SIZE);
@@ -557,9 +568,6 @@ class ByteArrayPool {
 	}
 
 	public static ByteArrayPool getInstance() {
-		if (INSTANCE == null) {
-			INSTANCE = new ByteArrayPool();
-		}
 		return INSTANCE;
 	}
 
