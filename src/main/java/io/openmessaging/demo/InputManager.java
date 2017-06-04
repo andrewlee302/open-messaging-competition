@@ -75,7 +75,7 @@ public class InputManager {
 		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
 //			 readConsecutiveSegsQueues[i] = new
 //			 LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
-			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(50);
+			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(25);
 		}
 
 		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
