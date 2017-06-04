@@ -19,7 +19,7 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int PARTITION_NUM = 10;
+	public static final int PARTITION_NUM = 20;
 
 	// write
 	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
@@ -28,10 +28,11 @@ public class Config {
 	// read
 	// 1. !!! will affect page cache in OS
 	// totally 512M
-	public static final int DECOMPRESS_BYTE_POOL_SIZE = 150; 
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 64; 
 	// 2
-	public static final int READ_BUFFER_QUEUE_SIZE = 200;
-	// 3. 500 super segments
+	public static final int READ_BUFFER_QUEUE_SIZE = 100;
+
+	// keep this
 	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
 
 	public static final int REQ_BATCH_COUNT_THRESHOLD = 64;
@@ -46,7 +47,6 @@ public class Config {
 	public static final int SEGMENT_SIZE = 1 << 14;
 
 
-	public static final int NUM_ENCODER_MESSAGE_THREAD = PARTITION_NUM;
 	public static final int NUM_READ_DISK_THREAD = 16;
 
 	/**

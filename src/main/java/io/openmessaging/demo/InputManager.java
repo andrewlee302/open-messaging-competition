@@ -73,13 +73,13 @@ public class InputManager {
 
 		// start Fetch service and message encoder services
 
-		readConsecutiveSegsQueues = new LinkedBlockingQueue[Config.NUM_ENCODER_MESSAGE_THREAD];
-		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+		readConsecutiveSegsQueues = new LinkedBlockingQueue[Config.PARTITION_NUM];
+		for (int i = 0; i < Config.PARTITION_NUM; i++) {
 			readConsecutiveSegsQueues[i] = new LinkedBlockingQueue<>(Config.READ_BUFFER_QUEUE_SIZE);
 		}
 
-		msgEncoderServices = new MessageEncoderService[Config.NUM_ENCODER_MESSAGE_THREAD];
-		msgEncoderThreads = new Thread[Config.NUM_ENCODER_MESSAGE_THREAD];
+		msgEncoderServices = new MessageEncoderService[Config.PARTITION_NUM];
+		msgEncoderThreads = new Thread[Config.PARTITION_NUM];
 
 		for (int i = 0; i < partitionNum; i++) {
 
@@ -102,8 +102,8 @@ public class InputManager {
 	}
 
 	public void startPullService(HashMap<String, ArrayList<BlockingQueue<MessagePool>>> bucketBindingMsgQueuesMap) {
-		logger.info("Start " + Config.NUM_ENCODER_MESSAGE_THREAD + " messge encoder services");
-		for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+		logger.info("Start " + Config.PARTITION_NUM + " messge encoder services");
+		for (int i = 0; i < Config.PARTITION_NUM; i++) {
 			msgEncoderServices[i] = new MessageEncoderService(readConsecutiveSegsQueues[i], bucketBindingMsgQueuesMap);
 			msgEncoderThreads[i] = new Thread(msgEncoderServices[i]);
 			msgEncoderThreads[i].start();
@@ -290,7 +290,7 @@ public class InputManager {
 			}
 			if (rank == 0) {
 				logger.info("All fetch services have been finished");
-				for (int i = 0; i < Config.NUM_ENCODER_MESSAGE_THREAD; i++) {
+				for (int i = 0; i < Config.PARTITION_NUM; i++) {
 					try {
 						readConsecutiveSegsQueues[i].put(ConsecutiveSegs.NULL);
 					} catch (InterruptedException e) {
