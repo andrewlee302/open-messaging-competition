@@ -19,7 +19,7 @@ public class Config {
 	public static final int MAXIMUM_SIZE_BUCKET_NAME = 20; // 10 char
 
 	// tuning!
-	public static final int PARTITION_NUM = 10;
+	public static final int PARTITION_NUM = 15;
 
 	// write
 	public static final int PERSIST_REQUEST_QUEUE_SIZE = Integer.MAX_VALUE;
@@ -53,7 +53,7 @@ public class Config {
 	 * 10(#Consumer) * READ_MSG_QUEUE_SIZE * MAX_MESSAGE_POOL_CAPACITY
 	 * * Message_SIZE(200)
 	 */
-	public static final int MAX_MESSAGE_POOL_CAPACITY = 64;
+	public static final int MAX_MESSAGE_POOL_CAPACITY = 128;
 	public static final int READ_MSG_QUEUE_SIZE = 200;
 	// All segments' size: 10 * 1M * 100 = 1G
 	// 40000000 message needs 4000 segment if size of a

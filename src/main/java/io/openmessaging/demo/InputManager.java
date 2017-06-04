@@ -81,8 +81,7 @@ public class InputManager {
 
 		for (int i = 0; i < partitionNum; i++) {
 
-			 this.decompressReqQueues[i] = new
-			 LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
+			this.decompressReqQueues[i] = new LinkedBlockingQueue<>(Config.DECOMPRESS_REQUEST_QUEUE_SIZE);
 
 			this.decompressServices[i] = new DecompressService(i);
 			this.decompressThreads[i] = new Thread(this.decompressServices[i]);
@@ -309,8 +308,9 @@ public class InputManager {
 					req = null;
 				}
 			}
-			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes, waitqueue: %d ms, occur: %d", rank,
-					decompressTotalCost, decompressTotalSize, decompressReqQueuesWaitTime, decompressReqQueuesWaitOccur));
+			logger.info(String.format("Rank%d compress cost %d ms, finally size: %d bytes, waitqueue: %d ms, occur: %d",
+					rank, decompressTotalCost, decompressTotalSize, decompressReqQueuesWaitTime,
+					decompressReqQueuesWaitOccur));
 			decompressLatch.countDown();
 			try {
 				decompressLatch.await();
@@ -343,6 +343,9 @@ public class InputManager {
 		long readConsecutiveSegsQueueWaitTime = 0;
 		int readConsecutiveSegsQueueWaitOccurr = 0;
 
+		long msgQueueWaitTime = 0;
+		int msgQueueWaitOccurr = 0;
+
 		@Override
 		public void run() {
 			while (true) {
@@ -361,7 +364,10 @@ public class InputManager {
 					e.printStackTrace();
 				}
 			}
-			logger.info(String.format("Decode service, wait time: %d ms, occurs: %d", readConsecutiveSegsQueueWaitTime, readConsecutiveSegsQueueWaitOccurr));
+			logger.info(String.format(
+					"Decode service, waitCompress time: %d ms, occurs: %d, waitMsgQueue time: %d ms, occurs: %d",
+					readConsecutiveSegsQueueWaitTime, readConsecutiveSegsQueueWaitOccurr, msgQueueWaitTime,
+					msgQueueWaitOccurr));
 		}
 
 		/**
@@ -401,20 +407,26 @@ public class InputManager {
 						numMsgs++;
 						if (!pool.addMessageIfRemain(msg)) {
 							// pool full
+							long s = System.currentTimeMillis();
 							for (BlockingQueue<MessagePool> queue : queueList)
 								queue.put(pool);
+							msgQueueWaitTime += (System.currentTimeMillis() - s);
+							msgQueueWaitOccurr++;
 							pool = new MessagePool(Config.MAX_MESSAGE_POOL_CAPACITY);
 						}
 					}
 				} catch (SegmentEmptyException e) {
 					// pool not full, not empty
 					if (pool.limit > 0) {
+						long s = System.currentTimeMillis();
 						for (BlockingQueue<MessagePool> queue : queueList)
 							try {
 								queue.put(pool);
 							} catch (InterruptedException e2) {
 								e2.printStackTrace();
 							}
+						msgQueueWaitTime += (System.currentTimeMillis() - s);
+						msgQueueWaitOccurr++;
 					}
 
 					// send the nullMessage as a signal
