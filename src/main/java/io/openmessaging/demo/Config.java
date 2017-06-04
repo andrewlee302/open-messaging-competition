@@ -28,9 +28,9 @@ public class Config {
 	// read
 	// 1. !!! will affect page cache in OS
 	// totally 512M
-	public static final int DECOMPRESS_BYTE_POOL_SIZE = 200; 
+	public static final int DECOMPRESS_BYTE_POOL_SIZE = 150; 
 	// 2
-	public static final int READ_BUFFER_QUEUE_SIZE = 150;
+	public static final int READ_BUFFER_QUEUE_SIZE = 200;
 	// 3. 500 super segments
 	public static final int DECOMPRESS_REQUEST_QUEUE_SIZE = 250;
 
