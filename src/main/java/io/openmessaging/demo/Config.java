@@ -43,7 +43,7 @@ public class Config {
 	/**
 	 * it directly relates to the messages' lifecycle.
 	 */
-	public static final int SEGMENT_SIZE = 1 << 16;
+	public static final int SEGMENT_SIZE = 1 << 14;
 
 
 	public static final int NUM_ENCODER_MESSAGE_THREAD = PARTITION_NUM;
